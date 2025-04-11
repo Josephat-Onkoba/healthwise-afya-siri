@@ -1,0 +1,38 @@
+{
+    "en": {
+        "title": "Sexual Health Basics",
+        "content": "Sexual health is a state of physical, emotional, mental, and social well-being in relation to sexuality. It requires a positive and respectful approach to sexuality and sexual relationships, as well as the possibility of having pleasurable and safe sexual experiences, free of coercion, discrimination, and violence.",
+        "topics": [
+            {
+                "title": "Safe Sex",
+                "content": "Safe sex practices include using condoms, getting regular STI testing, having open communication with partners, and practicing consent. These measures help prevent sexually transmitted infections and unplanned pregnancies."
+            },
+            {
+                "title": "Consent",
+                "content": "Consent is an ongoing process of communication between partners. It must be freely given, reversible, informed, enthusiastic, and specific. Both partners must actively agree to any sexual activity."
+            },
+            {
+                "title": "STI Prevention",
+                "content": "To prevent STIs: use condoms consistently and correctly, get regular testing, limit number of sexual partners, and communicate openly with partners about sexual health."
+            }
+        ]
+    },
+    "sw": {
+        "title": "Mambo ya Afya ya Kijinsia",
+        "content": "Afya ya kijinsia ni hali ya ustawi wa kimwili, kihemko, kiakili na kijamii kuhusiana na jinsia. Inahitaji njia chanya na ya kuthamini kuhusiana na jinsia na mahusiano ya kijinsia, na pia uwezekano wa kuwa na uzoefu wa kijinsia wenye raha na salama, bila kulazimishwa, ubaguzi, na unyanyasaji.",
+        "topics": [
+            {
+                "title": "Ngono Salama",
+                "content": "Mazoea ya ngono salama yanajumuisha kutumia kondomu, kupata uchunguzi wa mara kwa mara wa magonjwa ya zinaa, kuwa na mawasiliano ya wazi na washirika, na kutumia ridhaa. Hatua hizi husaidia kuzuia magonjwa ya zinaa na mimba zisizotarajiwa."
+            },
+            {
+                "title": "Ridhaa",
+                "content": "Ridhaa ni mchakato unaoendelea wa mawasiliano kati ya washirika. Lazima itolewe kwa hiari, ibadilike, iwe na taarifa, iwe na shauku, na iwe maalum. Washirika wote lazima wakubali shughuli yoyote ya kijinsia kikamilifu."
+            },
+            {
+                "title": "Kuzuia Magonjwa ya Zinaa",
+                "content": "Kuzuia magonjwa ya zinaa: tumia kondomu kwa uthabiti na usahihi, pata uchunguzi wa mara kwa mara, punguza idadi ya washirika wa kijinsia, na uwasiliane kwa wazi na washirika kuhusu afya ya kijinsia."
+            }
+        ]
+    }
+} 

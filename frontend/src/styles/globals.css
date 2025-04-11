@@ -1,0 +1,81 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom styles */
+body {
+  @apply antialiased;
+}
+
+/* Loading spinner */
+.loading-spinner {
+  @apply animate-spin rounded-full h-5 w-5 border-b-2 border-white;
+}
+
+/* File upload area */
+.dropzone {
+  @apply transition-colors duration-200 ease-in-out;
+}
+
+.dropzone:hover {
+  @apply border-indigo-500 bg-indigo-50;
+}
+
+/* Response area */
+.response-area {
+  @apply text-gray-700 leading-relaxed;
+}
+
+.response-area h1, 
+.response-area h2, 
+.response-area h3, 
+.response-area h4, 
+.response-area h5, 
+.response-area h6 {
+  @apply text-gray-900 font-semibold mt-4 mb-2;
+}
+
+.response-area p {
+  @apply mb-4;
+}
+
+.response-area strong {
+  @apply text-indigo-600 font-semibold;
+}
+
+.response-area ul, 
+.response-area ol {
+  @apply mb-4 pl-5;
+}
+
+.response-area ul {
+  @apply list-disc;
+}
+
+.response-area ol {
+  @apply list-decimal;
+}
+
+.response-area li {
+  @apply mb-1;
+}
+
+.response-area a {
+  @apply text-indigo-600 hover:text-indigo-800 underline;
+}
+
+.response-area blockquote {
+  @apply border-l-4 border-indigo-200 pl-4 italic my-4;
+}
+
+.response-area code {
+  @apply bg-gray-100 px-1 py-0.5 rounded text-sm font-mono;
+}
+
+.response-area pre {
+  @apply bg-gray-100 p-4 rounded overflow-x-auto my-4;
+}
+
+.response-area pre code {
+  @apply bg-transparent p-0;
+} 
