@@ -1,166 +1,132 @@
-# Deployment Guide
+# Deployment Guide for Healthwise Afya Siri
 
-This guide provides instructions for deploying both the backend and frontend components of the HealthFirst application.
+This guide provides instructions for deploying both the backend and frontend components of the Healthwise Afya Siri application.
 
-## Backend Deployment (Google Cloud Run)
+## Backend Deployment (Render.com)
 
 1. **Prerequisites**
-   - Google Cloud account
-   - Google Cloud CLI installed
-   - Docker installed
+   - A Render.com account
+   - Git repository with your code
 
-2. **Setup Google Cloud Project**
-   ```bash
-   # Login to Google Cloud
-   gcloud auth login
+2. **Deploy Backend to Render**
    
-   # Create new project
-   gcloud projects create healthfirst-app
+   **Option 1: Using the Render Dashboard**
    
-   # Set project
-   gcloud config set project healthfirst-app
-   
-   # Enable required APIs
-   gcloud services enable run.googleapis.com
-   gcloud services enable cloudbuild.googleapis.com
-   ```
+   1. Log in to your Render account
+   2. Click "New +" and select "Web Service"
+   3. Connect your Git repository
+   4. Configure the service:
+      - Name: `healthwise-backend`
+      - Environment: `Python`
+      - Build Command: `pip install -r requirements.txt`
+      - Start Command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+      - Select the `main` branch
+   5. Add environment variables from your `.env` file:
+      - `OPENAI_API_KEY`: Your OpenAI API key
+      - `GOOGLE_API_KEY`: Your Google API key
+      - `SECRET_KEY`: A secure random string
+      - `ALLOWED_ORIGINS`: `https://healthwise-afya-siri.vercel.app`
+      - `CHROMA_PERSIST_DIRECTORY`: `/data`
+      - `UPLOAD_FOLDER`: `/uploads`
+   6. Add disk storage:
+      - Click "Advanced" and add two disks:
+        1. Name: `data-disk`, Mount Path: `/data`, Size: 1GB
+        2. Name: `uploads-disk`, Mount Path: `/uploads`, Size: 1GB
+   7. Click "Create Web Service"
 
-3. **Deploy Backend**
-   ```bash
-   # Navigate to backend directory
-   cd backend
+   **Option 2: Using the render.yaml file**
    
-   # Build and deploy to Cloud Run
-   gcloud run deploy healthfirst-backend \
-     --source . \
-     --platform managed \
-     --region us-central1 \
-     --allow-unauthenticated
-   ```
+   1. Push the `render.yaml` file to your Git repository
+   2. Visit the Render Dashboard and select "Blueprint"
+   3. Connect your Git repository
+   4. Render will automatically detect the configuration
+   5. Review the settings and click "Apply"
+   6. Add the sensitive environment variables manually
 
-4. **Set Environment Variables**
-   ```bash
-   gcloud run services update healthfirst-backend \
-     --update-env-vars GOOGLE_API_KEY=your-api-key \
-     --update-env-vars SECRET_KEY=your-secret-key
-   ```
+3. **Verify Backend Deployment**
+   - Once deployed, test the API endpoint: `https://healthwise-backend.onrender.com/api/health`
+   - You should receive a response with `{"status": "healthy"}`
 
 ## Frontend Deployment (Vercel)
 
 1. **Prerequisites**
-   - Vercel account
-   - Vercel CLI installed
+   - A Vercel account
+   - Git repository with your code
 
-2. **Deploy Frontend**
-   ```bash
-   # Navigate to frontend directory
-   cd frontend
+2. **Deploy Frontend to Vercel**
    
-   # Install Vercel CLI
-   npm i -g vercel
+   **Option 1: Using the Vercel Dashboard**
    
-   # Login to Vercel
-   vercel login
-   
-   # Deploy
-   vercel
-   ```
+   1. Log in to your Vercel account
+   2. Click "Add New" > "Project"
+   3. Import your Git repository
+   4. Configure the project:
+      - Framework Preset: `Next.js`
+      - Root Directory: `/frontend`
+      - Build Command: `npm run build`
+      - Output Directory: `.next`
+   5. Add environment variables from your frontend `.env` file:
+      - `NEXT_PUBLIC_API_URL`: `https://healthwise-backend.onrender.com/api`
+   6. Click "Deploy"
 
-3. **Set Environment Variables**
-   - Go to Vercel dashboard
-   - Select your project
-   - Go to Settings > Environment Variables
-   - Add the following variables:
-     ```
-     NEXT_PUBLIC_API_URL=https://healthfirst-backend-xxxxx-uc.a.run.app/api
-     ```
+   **Option 2: Using the Vercel CLI**
+   
+   1. Install the Vercel CLI: `npm i -g vercel`
+   2. Navigate to the frontend directory: `cd frontend`
+   3. Run: `vercel`
+   4. Follow the prompts to link your project
+   5. For production deployment, run: `vercel --prod`
+
+3. **Verify Frontend Deployment**
+   - Once deployed, visit your Vercel URL: `https://healthwise-afya-siri.vercel.app`
+   - Ensure the application loads and can connect to the backend API
+
+## Updating Environment Variables
+
+### Backend (Render.com)
+1. Go to your Web Service in the Render Dashboard
+2. Navigate to the "Environment" tab
+3. Add, edit, or remove environment variables
+4. Click "Save Changes" - your service will automatically redeploy
+
+### Frontend (Vercel)
+1. Go to your Project in the Vercel Dashboard
+2. Navigate to "Settings" > "Environment Variables"
+3. Add, edit, or remove environment variables
+4. Click "Save" - you'll need to redeploy for changes to take effect
+
+## Troubleshooting
+
+1. **Backend Connection Issues**
+   - Check CORS configuration in `backend/app/main.py`
+   - Verify environment variables on Render.com
+   - Check Render logs for errors
+
+2. **Frontend API Connection Issues**
+   - Verify `NEXT_PUBLIC_API_URL` points to the correct backend URL
+   - Check browser console for CORS or network errors
+   - Ensure the backend is properly handling CORS headers
+
+3. **Deployment Failures**
+   - Check build logs for errors
+   - Verify all dependencies are correctly listed in `requirements.txt` or `package.json`
+   - Ensure your code is compatible with the deployment environment
+
+## Maintenance
+
+1. **Updating Your Application**
+   - Push changes to your Git repository
+   - Render and Vercel will automatically rebuild and deploy
+
+2. **Monitoring**
+   - Use Render's logging and metrics to monitor backend performance
+   - Use Vercel Analytics to monitor frontend performance
+
+3. **Scaling**
+   - Upgrade your Render plan for more resources
+   - Consider implementing caching for frequently accessed data
 
 ## Local Development
 
 1. **Backend**
-   ```bash
-   # Create virtual environment
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   
-   # Install dependencies
-   pip install -r requirements.txt
-   
-   # Set environment variables
-   cp .env.example .env
-   # Edit .env with your configuration
-   
-   # Run development server
-   flask run
    ```
-
-2. **Frontend**
-   ```bash
-   # Install dependencies
-   npm install
-   
-   # Set environment variables
-   cp .env.example .env.local
-   # Edit .env.local with your configuration
-   
-   # Run development server
-   npm run dev
-   ```
-
-## Monitoring and Maintenance
-
-1. **Backend Monitoring**
-   - Use Google Cloud Console to monitor:
-     - Request logs
-     - Error rates
-     - Resource usage
-     - API quotas
-
-2. **Frontend Monitoring**
-   - Use Vercel Analytics to monitor:
-     - Page views
-     - Performance metrics
-     - Error rates
-     - User behavior
-
-3. **Regular Maintenance**
-   - Update dependencies regularly
-   - Monitor API usage and quotas
-   - Backup ChromaDB data
-   - Review and update content moderation rules
-
-## Security Considerations
-
-1. **API Security**
-   - Use HTTPS for all API calls
-   - Implement rate limiting
-   - Validate file uploads
-   - Sanitize user input
-
-2. **Data Privacy**
-   - No PII storage
-   - Regular security audits
-   - Content moderation
-   - Secure file handling
-
-## Troubleshooting
-
-1. **Common Issues**
-   - API connection errors
-   - File upload failures
-   - Translation service issues
-   - Memory limits exceeded
-
-2. **Solutions**
-   - Check environment variables
-   - Verify API keys
-   - Monitor error logs
-   - Scale resources if needed
-
-## Support
-
-For additional support:
-1. Check the documentation
-2. Review error logs
-3. Contact the development team
-4. Submit issues on GitHub 

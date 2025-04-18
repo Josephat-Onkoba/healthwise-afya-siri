@@ -10,6 +10,6 @@ pip install chromadb pytesseract moviepy deep-translator
 pip install Pillow numpy pandas sentence-transformers scikit-learn
 
 echo Starting server...
-python app.py
+python server.py
 
 pause 

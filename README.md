@@ -49,8 +49,15 @@
 - Formidable for file handling
 
 ### Deployment
-- **Backend**: Google Cloud Run or Heroku
-- **Frontend**: Vercel
+- **Backend**: Deployed to [Render.com](https://render.com)
+- **Frontend**: Deployed to [Vercel](https://vercel.com)
+
+For detailed deployment instructions, see [DEPLOYMENT.md](DEPLOYMENT.md).
+
+### Demo URLs
+
+- Frontend: [https://healthwise-afya-siri.vercel.app](https://healthwise-afya-siri.vercel.app)
+- Backend API: [https://healthwise-backend.onrender.com/api](https://healthwise-backend.onrender.com/api)
 
 ---
 

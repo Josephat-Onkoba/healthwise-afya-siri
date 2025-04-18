@@ -6,7 +6,8 @@ import HealthInfoResponse from './HealthInfoResponse';
 import { 
   FiSend, FiMic, FiImage, FiVideo, FiLoader, FiAlertCircle, 
   FiRefreshCw, FiTrash2, FiMicOff, FiSettings, FiX, 
-  FiShare2, FiCopy, FiDownload, FiBookmark, FiCheck 
+  FiShare2, FiCopy, FiDownload, FiBookmark, FiCheck,
+  FiHeadphones, FiMusic
 } from 'react-icons/fi';
 import toast from 'react-hot-toast';
 
@@ -17,7 +18,7 @@ interface Message {
   sender: 'user' | 'bot';
   timestamp: Date;
   mediaUrl?: string;
-  status?: 'sending' | 'sent' | 'error';
+  status?: 'sending' | 'sent' | 'error' | 'pending';
   error?: string;
   retryFn?: () => void; // Function to retry a failed message
 }
@@ -64,13 +65,17 @@ const INAPPROPRIATE_TERMS = [
   // Add inappropriate terms here if needed
 ];
 
-const ChatInterface = forwardRef<{ clearChatHistory: () => void }, ChatInterfaceProps>(({ targetLanguage }, ref) => {
+const ChatInterface = forwardRef<{ clearChatHistory: () => void; openSettings: () => void }, ChatInterfaceProps>(({ targetLanguage }, ref) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [mediaPreview, setMediaPreview] = useState<string | null>(null);
   const [networkStatus, setNetworkStatus] = useState<'online' | 'offline'>('online');
   const [isRecording, setIsRecording] = useState(false);
+  const [speechText, setSpeechText] = useState(''); // Store speech text separately
+  const [listeningTimeout, setListeningTimeout] = useState<NodeJS.Timeout | null>(null);
+  const [hasSentMessage, setHasSentMessage] = useState(false); // Track if a message has been sent
+  const [cooldownActive, setCooldownActive] = useState(false); // Add cooldown to prevent rapid sending
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const speechRecognitionRef = useRef<any>(null);
@@ -78,6 +83,10 @@ const ChatInterface = forwardRef<{ clearChatHistory: () => void }, ChatInterface
   const [userPreferences, setUserPreferences] = useState<UserPreferences>(defaultPreferences);
   const [bookmarkedResponses, setBookmarkedResponses] = useState<string[]>([]);
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
+  const [videoProcessingType, setVideoProcessingType] = useState<'auto' | 'frames' | 'audio'>('auto');
+  const [showVideoOptions, setShowVideoOptions] = useState<boolean>(false);
+  const [pendingVideoUpload, setPendingVideoUpload] = useState<File | null>(null);
+  const [showListeningIndicator, setShowListeningIndicator] = useState(false);
 
   // Load messages from localStorage on initial load
   useEffect(() => {
@@ -321,17 +330,105 @@ const ChatInterface = forwardRef<{ clearChatHistory: () => void }, ChatInterface
         formData.append('target_language', targetLanguage);
         
         const endpoint = type === 'image' ? '/api/upload/image' : 
-                        type === 'video' ? '/api/upload/video' : '/api/upload/voice';
+                        type === 'video' ? '/api/upload/video/comprehensive' : '/api/upload/voice';
         
         console.log(`Sending ${type} to endpoint: ${endpoint}`);
         
         try {
-          response = await fetch(endpoint, {
-            method: 'POST',
-            body: formData,
-            signal
-          });
+          // For video, we should use our polling mechanism instead
+          if (type === 'video') {
+            // Generate a unique ID for this processing request
+            const requestId = messageId;
+            
+            // Update the message to show progress initially
+            const updateProgress = (progress: string) => {
+              setMessages(prev => prev.map(msg => 
+                msg.id === messageId ? { ...msg, content: progress } : msg
+              ));
+            };
+            
+            updateProgress("Processing video. This may take a minute or two...");
+            
+            // Initial API call to start processing
+            const initialResponse = await fetch(endpoint, {
+              method: 'POST',
+              body: formData
+            });
+            
+            if (!initialResponse.ok) {
+              throw new Error(`HTTP error! status: ${initialResponse.status}`);
+            }
+            
+            // Get initial data
+            const initialData = await initialResponse.json();
+            
+            // Use our polling mechanism to check status until complete
+            const pollingFn = createVideoPolling('auto', requestId, updateProgress);
+            const data = await pollingFn(initialData);
+            
+            // Once polling is complete, handle the response like any other
+            if (data.status === 'completed') {
+              // Update user message status
+              setMessages(prev => prev.map(msg => 
+                msg.id === messageId ? { ...msg, status: 'sent' } : msg
+              ));
+              
+              // For comprehensive video response, include both visual and audio analysis
+              let botContent = '';
+              if (data.has_audio) {
+                const audioTranscript = data.audio_transcript || '';
+                const audioAnalysis = data.audio_analysis || '';
+                const visualAnalysis = data.visual_analysis || '';
+                
+                botContent = `## Video Analysis\n\n`;
+                botContent += `### Visual Content\n${visualAnalysis}\n\n`;
+                
+                if (audioTranscript) {
+                  botContent += `### Audio Transcript\n"${audioTranscript}"\n\n`;
+                }
+                
+                if (audioAnalysis) {
+                  botContent += `### Audio Analysis\n${audioAnalysis}`;
+                }
+              } else {
+                // Handle case with no audio
+                botContent = data.visual_analysis || 
+                            data.description || 
+                            data.error || 
+                            'Sorry, I could not analyze this video.';
+                
+                if (data.audio_error) {
+                  botContent += `\n\n**Note on audio**: ${data.audio_error}`;
+                }
+              }
+              
+              // Add bot response
+              const botMessage: Message = {
+                id: (Date.now() + 1).toString(),
+                type: 'text',
+                content: botContent,
+                sender: 'bot',
+                timestamp: new Date(),
+              };
+              
+              setMessages(prev => [...prev, botMessage]);
+              setIsLoading(false);
+              return; // Exit early since we've handled the video response
+            } else {
+              throw new Error("Video processing failed");
+            }
+          } else {
+            // Regular file upload processing for non-video files
+            response = await fetch(endpoint, {
+              method: 'POST',
+              body: formData,
+              signal
+            });
+          }
         } catch (error) {
+          if (error instanceof DOMException && error.name === 'AbortError') {
+            throw new Error('Request was aborted');
+          }
           throw error;
         }
       }
@@ -356,12 +453,23 @@ const ChatInterface = forwardRef<{ clearChatHistory: () => void }, ChatInterface
       setMessages(prev => prev.map(msg => 
         msg.id === messageId ? { ...msg, status: 'sent' } : msg
       ));
-
+      
+      // Add the bot's response
+      let botContent = '';
+      
+      if (type === 'text') {
+        botContent = data.response || 'Sorry, I could not generate a response.';
+      } else if (type === 'image') {
+        botContent = data.description || 'Sorry, I could not analyze this image.';
+      } else if (type === 'audio') {
+        botContent = data.transcription || 'Sorry, I could not transcribe this audio.';
+      }
+      
       // Add bot response
       const botMessage: Message = {
         id: (Date.now() + 1).toString(),
         type: 'text',
-        content: data.response || data.translated_text || data.description || 'No response received',
+        content: botContent,
         sender: 'bot',
         timestamp: new Date(),
       };
@@ -412,6 +520,178 @@ const ChatInterface = forwardRef<{ clearChatHistory: () => void }, ChatInterface
     }
   };
 
+  // Add a utility function for retrying failed requests
+  const retryRequest = async (fn: () => Promise<any>, maxRetries = 3, delay = 2000): Promise<any> => {
+    let lastError;
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        return await fn();
+      } catch (error) {
+        console.error(`Attempt ${attempt + 1}/${maxRetries} failed:`, error);
+        lastError = error;
+        // Wait before retrying
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+    throw lastError;
+  };
+
+  // Handle audio upload specifically
+  const handleAudioUpload = async (file: File, mediaUrl: string): Promise<void> => {
+    // Create a message to show progress
+    const tempMessageId = Date.now().toString();
+    const tempMessage: Message = {
+      id: tempMessageId,
+      type: 'audio',
+      content: 'Processing audio...',
+      sender: 'user',
+      timestamp: new Date(),
+      mediaUrl,
+      status: 'sending'
+    };
+    
+    setMessages(prev => [...prev, tempMessage]);
+    
+    // Create FormData for the upload
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('target_language', targetLanguage);
+    
+    // Log detailed info about the file
+    console.log('Audio upload details:', {
+      fileName: file.name,
+      fileSize: file.size,
+      fileType: file.type
+    });
+    
+    // Update the message to show we're processing
+    setMessages(prev => prev.map(msg => 
+      msg.id === tempMessageId ? { 
+        ...msg, 
+        content: `Uploading audio...`,
+        status: 'sending' 
+      } : msg
+    ));
+    
+    // Handle successful upload
+    const handleSuccess = (responseText: string) => {
+      console.log('Successfully processed audio');
+      
+      // Mark the upload as successful
+      setMessages(prev => prev.map(msg => 
+        msg.id === tempMessageId ? { 
+          ...msg, 
+          content: file.name || 'Audio recording',
+          status: 'sent' 
+        } : msg
+      ));
+      
+      // Create the bot response
+      const botContent = responseText && responseText.trim() ? 
+        responseText : 
+        "I've processed your audio. What would you like to know about it?";
+      
+      // Add the bot message
+      const botMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        type: 'text',
+        content: botContent,
+        sender: 'bot',
+        timestamp: new Date(),
+      };
+      
+      setMessages(prev => [...prev, botMessage]);
+    };
+    
+    // Handle error during upload
+    const handleError = (error: any) => {
+      console.error('Audio upload error:', error);
+      
+      // Update the user message with error
+      setMessages(prev => prev.map(msg => 
+        msg.id === tempMessageId ? { 
+          ...msg, 
+          content: 'Audio upload failed',
+          status: 'error',
+          error: error instanceof Error ? error.message : String(error),
+          retryFn: () => handleAudioUpload(file, mediaUrl)
+        } : msg
+      ));
+      
+      // Add error message to chat
+      const errorMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        type: 'text',
+        content: `Failed to upload audio. ${error instanceof Error ? error.message : String(error)}. Try a shorter audio clip or different format.`,
+        sender: 'bot',
+        timestamp: new Date(),
+        status: 'error',
+        error: error instanceof Error ? error.message : String(error),
+        retryFn: () => handleAudioUpload(file, mediaUrl)
+      };
+      
+      setMessages(prev => [...prev, errorMessage]);
+    };
+    
+    // Try direct upload using XMLHttpRequest for better error handling
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/upload/voice', true);
+    
+    // Set up event handlers
+    xhr.onload = function() {
+      if (xhr.status === 200) {
+        console.log('XHR Success - Response:', xhr.responseText);
+        handleSuccess(xhr.responseText);
+      } else {
+        console.error('XHR Error - Status:', xhr.status, 'Response:', xhr.responseText);
+        handleError(new Error(`HTTP error! status: ${xhr.status}`));
+      }
+    };
+    
+    xhr.onerror = function() {
+      console.error('XHR Network Error');
+      handleError(new Error('Network error during upload'));
+    };
+    
+    // Log progress
+    xhr.upload.onprogress = function(e) {
+      if (e.lengthComputable) {
+        const percentComplete = Math.round((e.loaded / e.total) * 100);
+        console.log(`Upload progress: ${percentComplete}%`);
+        
+        // Update message with progress
+        if (percentComplete < 100) {
+          setMessages(prev => prev.map(msg => 
+            msg.id === tempMessageId ? { 
+              ...msg, 
+              content: `Uploading audio... ${percentComplete}%`,
+              status: 'sending' 
+            } : msg
+          ));
+        } else {
+          setMessages(prev => prev.map(msg => 
+            msg.id === tempMessageId ? { 
+              ...msg, 
+              content: 'Processing audio...',
+              status: 'sending' 
+            } : msg
+          ));
+        }
+      }
+    };
+    
+    // Send the FormData
+    try {
+      console.log('Starting XHR upload');
+      xhr.send(formData);
+    } catch (error) {
+      console.error('XHR Send Error:', error);
+      handleError(error);
+    } finally {
+      setMediaPreview(null);
+    }
+  };
+
   const handleMediaUpload = async (file: File, type: 'image' | 'video' | 'audio') => {
     console.log('Handling media upload:', { 
       fileName: file.name, 
@@ -442,31 +722,31 @@ const ChatInterface = forwardRef<{ clearChatHistory: () => void }, ChatInterface
       const mediaUrl = URL.createObjectURL(file);
       setMediaPreview(mediaUrl);
       
-      // Add a temporary message to show the media is being processed
+      // For video files, show the processing options and don't create a message yet
+      if ((type as 'image' | 'video' | 'audio') === 'video') {
+        setPendingVideoUpload(file);
+        setShowVideoOptions(true);
+        return; // Exit early, we'll handle this after selecting options
+      }
+      
+      // For audio files, use the specialized handler
+      if ((type as 'image' | 'video' | 'audio') === 'audio') {
+        await handleAudioUpload(file, mediaUrl);
+        return;
+      }
+      
+      // For other file types, proceed as normal
       const tempMessageId = Date.now().toString();
-      const tempMessage: Message = {
-        id: tempMessageId,
-        type,
-        content: `Processing ${type}...`,
-        sender: 'user',
-        timestamp: new Date(),
-        mediaUrl,
-        status: 'sending'
-      };
       
-      setMessages(prev => [...prev, tempMessage]);
-      
-      // Send the media to the backend
+      // Send the media to the backend - handleSendMessage will create the message
       console.log('Sending media to backend:', { type, fileName: file.name });
+      
+      // Only handle the message for non-video types
+      // We'll handle videos separately in processVideoWithOption
       await handleSendMessage(file, type, mediaUrl);
       
       // Clear the preview after successful upload
       setMediaPreview(null);
-      
-      // Update the temporary message status
-      setMessages(prev => prev.map(msg => 
-        msg.id === tempMessageId ? { ...msg, status: 'sent' } : msg
-      ));
     } catch (error) {
       console.error('Error in handleMediaUpload:', error);
       
@@ -558,39 +838,176 @@ const ChatInterface = forwardRef<{ clearChatHistory: () => void }, ChatInterface
 
   // Initialize speech recognition
   useEffect(() => {
-    if ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window) {
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-      const recognition = new SpeechRecognition();
-      
-      recognition.continuous = false;
-      recognition.interimResults = true;
-      recognition.lang = targetLanguage === 'en' ? 'en-US' : 
-                        targetLanguage === 'sw' ? 'sw-KE' : 
-                        targetLanguage === 'ha' ? 'ha' : 
-                        targetLanguage === 'yo' ? 'yo' : 
-                        targetLanguage === 'ig' ? 'ig' : 'en-US';
-      
-      recognition.onresult = (event: any) => {
-        const transcript = Array.from(event.results)
-          .map((result: any) => result[0])
-          .map((result: any) => result.transcript)
-          .join('');
+    let recognitionInstance: any = null;
+    // Flag to track if we've already processed this recognition session
+    let hasProcessedSpeech = false;
+    
+    const setupRecognition = () => {
+      if ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window) {
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        recognitionInstance = new SpeechRecognition();
         
-        setInputText(transcript);
-      };
+        recognitionInstance.continuous = true;
+        recognitionInstance.interimResults = true;
+        recognitionInstance.maxAlternatives = 1;
+        recognitionInstance.lang = targetLanguage === 'en' ? 'en-US' : 
+                          targetLanguage === 'sw' ? 'sw-KE' : 
+                          targetLanguage === 'ha' ? 'ha' : 
+                          targetLanguage === 'yo' ? 'yo' : 
+                          targetLanguage === 'ig' ? 'ig' : 'en-US';
+        
+        // Clear all previous event listeners
+        recognitionInstance.onresult = null;
+        recognitionInstance.onerror = null;
+        recognitionInstance.onend = null;
+        
+        // Accumulate speech while listening
+        let accumulatedTranscript = '';
+        let finalTranscriptTimeout: NodeJS.Timeout | null = null;
+        
+        recognitionInstance.onresult = (event: any) => {
+          if (hasSentMessage || hasProcessedSpeech) return;
+          
+          // Get the current transcript
+          let interimTranscript = '';
+          let finalTranscript = '';
+          
+          for (let i = event.resultIndex; i < event.results.length; ++i) {
+            if (event.results[i].isFinal) {
+              finalTranscript += event.results[i][0].transcript;
+            } else {
+              interimTranscript += event.results[i][0].transcript;
+            }
+          }
+          
+          // Add any final transcript parts to our accumulated text
+          if (finalTranscript) {
+            accumulatedTranscript += ' ' + finalTranscript;
+            accumulatedTranscript = accumulatedTranscript.trim();
+          }
+          
+          // Show what we're hearing
+          setSpeechText(accumulatedTranscript + (interimTranscript ? ' ' + interimTranscript : ''));
+          
+          // Reset the timeout each time we get more speech
+          if (finalTranscriptTimeout) {
+            clearTimeout(finalTranscriptTimeout);
+          }
+          
+          // Set a timeout to send message after a pause in speech (5 seconds)
+          finalTranscriptTimeout = setTimeout(() => {
+            if (hasSentMessage || hasProcessedSpeech) return;
+            
+            if (accumulatedTranscript.trim()) {
+              console.log('Sending message from pause timeout');
+              hasProcessedSpeech = true;
+              setHasSentMessage(true);
+              
+              // Stop recognition first to prevent additional events
+              try {
+                recognitionInstance.stop();
+              } catch (e) {
+                console.error('Error stopping recognition in timeout', e);
+              }
+              
+              // Send message with a slight delay to ensure recognition has stopped
+              setTimeout(() => {
+                handleSendMessage(accumulatedTranscript.trim());
+                cleanupRecognition();
+              }, 100);
+            }
+          }, 5000); // 5 second pause to consider speech complete
+        };
+        
+        recognitionInstance.onerror = (event: any) => {
+          console.error('Speech recognition error', event.error);
+          // Only clean up for fatal errors, not no-speech
+          if (event.error !== 'no-speech') {
+            cleanupRecognition();
+          }
+        };
+        
+        // If recognition ends before we've sent the message, send what we have
+        recognitionInstance.onend = () => {
+          // Only process if we haven't already sent a message and haven't processed speech
+          if (accumulatedTranscript.trim() && !hasSentMessage && !hasProcessedSpeech) {
+            console.log('Sending message from onend event');
+            hasProcessedSpeech = true;
+            setHasSentMessage(true);
+            
+            // Use setTimeout to ensure we're outside the event handling context
+            setTimeout(() => {
+              handleSendMessage(accumulatedTranscript.trim());
+              cleanupRecognition();
+            }, 100);
+          } else {
+            // Just clean up without sending
+            cleanupRecognition();
+          }
+        };
+        
+        speechRecognitionRef.current = recognitionInstance;
+      }
+    };
+    
+    // Setup clean function for recognition
+    const cleanupRecognition = () => {
+      setIsRecording(false);
+      setShowListeningIndicator(false);
+      setSpeechText('');
       
-      recognition.onerror = (event: any) => {
-        console.error('Speech recognition error', event.error);
-        setIsRecording(false);
-      };
+      // Clear any existing timeouts
+      if (listeningTimeout) {
+        clearTimeout(listeningTimeout);
+        setListeningTimeout(null);
+      }
       
-      recognition.onend = () => {
-        setIsRecording(false);
-      };
+      // Set a cooldown to prevent immediate restart
+      if (!cooldownActive) {
+        setCooldownActive(true);
+        setTimeout(() => {
+          setCooldownActive(false);
+        }, 1000); // 1 second cooldown
+      }
+    };
+    
+    // Initial setup
+    setupRecognition();
+    
+    // Cleanup on component unmount
+    return () => {
+      if (speechRecognitionRef.current) {
+        try {
+          speechRecognitionRef.current.abort();
+        } catch (e) {
+          console.error('Error stopping speech recognition', e);
+        }
+      }
       
-      speechRecognitionRef.current = recognition;
+      if (listeningTimeout) {
+        clearTimeout(listeningTimeout);
+      }
+    };
+  }, [targetLanguage, cooldownActive, hasSentMessage]);
+  
+  // Add back the stopListening function
+  const stopListening = () => {
+    if (speechRecognitionRef.current) {
+      try {
+        speechRecognitionRef.current.stop();
+      } catch (e) {
+        console.error('Error stopping speech recognition', e);
+      }
     }
-  }, [targetLanguage]);
+    
+    setIsRecording(false);
+    setShowListeningIndicator(false);
+    
+    if (listeningTimeout) {
+      clearTimeout(listeningTimeout);
+      setListeningTimeout(null);
+    }
+  };
   
   // Toggle speech recognition
   const toggleSpeechRecognition = () => {
@@ -600,12 +1017,62 @@ const ChatInterface = forwardRef<{ clearChatHistory: () => void }, ChatInterface
     }
     
     if (isRecording) {
-      speechRecognitionRef.current.stop();
-      setIsRecording(false);
+      stopListening();
+      // If stopping manually, send the message immediately if we have something
+      if (speechText.trim() && !hasSentMessage) {
+        console.log('Sending message from manual stop');
+        setHasSentMessage(true);
+        // Slight delay to ensure stopListening has completed
+        setTimeout(() => {
+          handleSendMessage(speechText.trim());
+        }, 100);
+      }
     } else {
-      speechRecognitionRef.current.start();
+      // Don't start if cooldown is active
+      if (cooldownActive) {
+        toast.error('Please wait a moment before using voice input again');
+        return;
+      }
+      
+      setSpeechText('');
+      setHasSentMessage(false);
       setIsRecording(true);
-      toast.success('Listening... Speak your question');
+      setShowListeningIndicator(true);
+      
+      try {
+        // Start a new recognition session
+        speechRecognitionRef.current.start();
+        toast.success('Listening... Speak your question (will auto-send after 5s pause)');
+        
+        // Set a maximum listening time of 30 seconds
+        if (listeningTimeout) {
+          clearTimeout(listeningTimeout);
+        }
+        
+        const timeout = setTimeout(() => {
+          if (isRecording && !hasSentMessage) {
+            console.log('Sending message from max timeout');
+            if (speechText.trim()) {
+              setHasSentMessage(true);
+              stopListening();
+              
+              // Slight delay to ensure stopListening has completed
+              setTimeout(() => {
+                handleSendMessage(speechText.trim());
+              }, 100);
+            } else {
+              stopListening();
+              toast.error('No speech detected');
+            }
+          }
+        }, 30000); // 30 second maximum listening time
+        
+        setListeningTimeout(timeout);
+      } catch (error) {
+        console.error('Error starting speech recognition:', error);
+        stopListening();
+        toast.error('Voice input error. Please try again.');
+      }
     }
   };
 
@@ -942,10 +1409,494 @@ const ChatInterface = forwardRef<{ clearChatHistory: () => void }, ChatInterface
     );
   };
 
+  // Add new function to process video with selected option
+  const processVideoWithOption = async (option: 'auto' | 'frames' | 'audio') => {
+    if (!pendingVideoUpload) return;
+    
+    try {
+      const file = pendingVideoUpload;
+      const mediaUrl = URL.createObjectURL(file);
+      
+      // Set loading state to true
+      setIsLoading(true);
+      
+      // Generate a unique ID for this processing request
+      const requestId = Date.now().toString();
+      
+      // Add a temporary message to show the media is being processed
+      const tempMessageId = Date.now().toString();
+      const tempMessage: Message = {
+        id: tempMessageId,
+        type: 'video',
+        content: `Processing video ${option === 'frames' ? '(visual frames only)' : 
+                 option === 'audio' ? '(with audio analysis)' : 
+                 '(comprehensive analysis)'}...`,
+        sender: 'user',
+        timestamp: new Date(),
+        mediaUrl,
+        status: 'sending'
+      };
+      
+      setMessages(prev => [...prev, tempMessage]);
+      
+      // Update user message with processing status
+      const updateProgress = (progress: string) => {
+        setMessages(prev => prev.map(msg => 
+          msg.id === tempMessageId ? { 
+            ...msg, 
+            content: progress
+          } : msg
+        ));
+      };
+      
+      // Create FormData and add processing option
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('target_language', targetLanguage);
+      formData.append('processing_type', option);
+      formData.append('request_id', requestId);
+      
+      // Determine endpoint based on the option
+      const endpoint = option === 'frames' ? '/api/upload/video' : 
+                     option === 'audio' ? '/api/upload/video/audio' : 
+                     '/api/upload/video/comprehensive';
+      
+      console.log(`Sending video to endpoint: ${endpoint} with option: ${option}`);
+      
+      // For frames-only analysis, use direct fetch (faster)
+      if (option === 'frames') {
+        try {
+          const response = await fetch(endpoint, {
+            method: 'POST',
+            body: formData,
+          });
+          
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+          
+          const data = await response.json();
+          processVideoResponse(option, data, tempMessageId);
+        } catch (error) {
+          handleVideoError(error, tempMessageId);
+        }
+      } else {
+        // For audio or comprehensive analysis, use a polling approach
+        // First send the file for processing
+        try {
+          updateProgress(`Starting video ${option === 'audio' ? 'audio' : 'comprehensive'} analysis...`);
+          
+          // Initial request to start processing
+          const initResponse = await fetch(endpoint, {
+            method: 'POST',
+            body: formData,
+          });
+          
+          if (!initResponse.ok) {
+            throw new Error(`HTTP error! status: ${initResponse.status}`);
+          }
+          
+          const initData = await initResponse.json();
+          
+          // If we got a result immediately, process it
+          if (initData.status === 'completed') {
+            processVideoResponse(option, initData, tempMessageId);
+            return;
+          }
+          
+          // If processing is happening in the background
+          if (initData.status === 'processing' || initData.job_id) {
+            const jobId = initData.job_id || requestId;
+            let attempts = 0;
+            const maxAttempts = 30; // Try for up to 5 minutes (10 seconds * 30)
+            
+            // Start polling for results
+            const pollForResults = async () => {
+              if (attempts >= maxAttempts) {
+                throw new Error("Processing timeout - took too long to complete");
+              }
+              
+              attempts++;
+              updateProgress(`Processing video... (${attempts}/${maxAttempts})`);
+              
+              try {
+                const pollResponse = await fetch(`/api/job_status/${jobId}`);
+                
+                if (!pollResponse.ok) {
+                  throw new Error(`HTTP error! status: ${pollResponse.status}`);
+                }
+                
+                const pollData = await pollResponse.json();
+                
+                if (pollData.status === 'completed') {
+                  processVideoResponse(option, pollData, tempMessageId);
+                  return;
+                } else if (pollData.status === 'failed') {
+                  throw new Error(pollData.error || "Processing failed");
+                } else {
+                  // Still processing, wait and try again
+                  setTimeout(pollForResults, 10000); // Poll every 10 seconds
+                }
+              } catch (error) {
+                console.error("Error polling for results:", error);
+                handleVideoError(error, tempMessageId);
+              }
+            };
+            
+            // Start polling
+            setTimeout(pollForResults, 5000); // Start polling after 5 seconds
+          } else {
+            // Handle unexpected response
+            processVideoResponse(option, initData, tempMessageId);
+          }
+        } catch (error) {
+          handleVideoError(error, tempMessageId);
+        }
+      }
+    } finally {
+      // Don't clear loading state here - it will be cleared when processing completes
+    }
+  };
+
+  // Function to handle processing the video response
+  const processVideoResponse = (option: 'auto' | 'frames' | 'audio', data: any, tempMessageId: string) => {
+    try {
+      if (!data) {
+        throw new Error('No response data received');
+      }
+      
+      // Check if this is a pending status message
+      if (data.status === 'pending') {
+        // Update the message to indicate still processing
+        setMessages(prev => prev.map(msg => {
+          if (msg.id === tempMessageId) {
+            return {
+              ...msg,
+              content: data.message,
+              status: 'pending' as 'pending' // Use type assertion to ensure correct type
+            };
+          }
+          return msg;
+        }));
+        
+        // Don't add a bot response yet - it will appear when processing is complete
+        return;
+      }
+      
+      console.log('Received response:', data);
+      
+      // Update user message status
+      setMessages(prev => prev.map(msg => 
+        msg.id === tempMessageId ? { ...msg, status: 'sent' } : msg
+      ));
+      
+      // Process response based on the option
+      let botContent = '';
+      
+      if (option === 'frames') {
+        botContent = data.description || data.visual_analysis || 'Sorry, I could not analyze this video.';
+      } else if (option === 'audio') {
+        if (data.transcript) {
+          botContent = `
+## Audio Analysis
+
+### Transcript
+"${data.transcript}"
+
+### Analysis
+${data.analysis || 'No analysis available.'}
+          `;
+        } else {
+          botContent = data.error || 'Sorry, I could not analyze the audio in this video.';
+        }
+      } else {
+        // Comprehensive option
+        if (data.has_audio) {
+          const audioTranscript = data.audio_transcript || '';
+          const audioAnalysis = data.audio_analysis || '';
+          const visualAnalysis = data.visual_analysis || '';
+          
+          botContent = `## Video Analysis\n\n`;
+          botContent += `### Visual Content\n${visualAnalysis}\n\n`;
+          
+          if (audioTranscript) {
+            botContent += `### Audio Transcript\n"${audioTranscript}"\n\n`;
+          }
+          
+          if (audioAnalysis) {
+            botContent += `### Audio Analysis\n${audioAnalysis}`;
+          }
+        } else {
+          botContent = data.visual_analysis || 
+                     data.description || 
+                     data.error || 
+                     'Sorry, I could not analyze this video.';
+          
+          if (data.audio_error) {
+            botContent += `\n\n**Note on audio**: ${data.audio_error}`;
+          }
+        }
+      }
+      
+      // Add bot response
+      const botMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        type: 'text',
+        content: botContent,
+        sender: 'bot',
+        timestamp: new Date(),
+      };
+      
+      setMessages(prev => [...prev, botMessage]);
+    } catch (error) {
+      console.error('Error processing video response:', error);
+      handleVideoError(error, tempMessageId);
+    } finally {
+      // Clean up
+      setIsLoading(false);
+      setMediaPreview(null);
+      setPendingVideoUpload(null);
+      setVideoProcessingType('auto');
+    }
+  };
+
+  // Function to handle video processing errors
+  const handleVideoError = (error: any, tempMessageId: string) => {
+    console.error('Error processing video:', error);
+    
+    // Format the error message
+    const formattedError = formatErrorMessage(error);
+    
+    // Update the user message to show error
+    setMessages(prev => prev.map(msg => 
+      msg.id === tempMessageId ? { 
+        ...msg, 
+        status: 'error',
+        error: formattedError.message 
+      } : msg
+    ));
+    
+    // Add error message to chat
+    const errorMessage: Message = {
+      id: Date.now().toString(),
+      type: 'text',
+      content: formattedError.status === 429 
+        ? 'The service is currently busy. Please try again in a moment.'
+        : 'Sorry, I encountered an error processing your video. Please try again.',
+      sender: 'bot',
+      timestamp: new Date(),
+      status: 'error',
+      error: formattedError.message
+    };
+    
+    setMessages(prev => [...prev, errorMessage]);
+    
+    // Clean up
+    setIsLoading(false);
+    setMediaPreview(null);
+    setPendingVideoUpload(null);
+    setVideoProcessingType('auto');
+  };
+
+  // Add the Video Options Modal component
+  const VideoOptionsModal = () => {
+    if (!showVideoOptions) return null;
+    
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="bg-white rounded-lg p-6 max-w-md w-full">
+          <h2 className="text-xl font-semibold text-purple-700 mb-2">How would you like to analyze this video?</h2>
+          <p className="text-sm text-gray-600 mb-4">Choose the most appropriate option for better results:</p>
+          
+          <div className="space-y-4">
+            <button
+              onClick={() => {
+                setVideoProcessingType('auto');
+                setShowVideoOptions(false); // Hide modal immediately
+                processVideoWithOption('auto');
+              }}
+              className="w-full p-4 border border-purple-200 rounded-lg flex items-center space-x-3 hover:bg-purple-50 transition-colors"
+            >
+              <div className="bg-purple-100 p-2 rounded-full text-purple-600">
+                <FiVideo className="w-6 h-6" />
+              </div>
+              <div className="text-left">
+                <div className="font-medium">Comprehensive Analysis</div>
+                <div className="text-sm text-gray-500">Analyze both visual content and audio if available (default)</div>
+              </div>
+            </button>
+            
+            <button
+              onClick={() => {
+                setVideoProcessingType('frames');
+                setShowVideoOptions(false); // Hide modal immediately
+                processVideoWithOption('frames');
+              }}
+              className="w-full p-4 border border-purple-200 rounded-lg flex items-center space-x-3 hover:bg-purple-50 transition-colors"
+            >
+              <div className="bg-purple-100 p-2 rounded-full text-purple-600">
+                <FiImage className="w-6 h-6" />
+              </div>
+              <div className="text-left">
+                <div className="font-medium">Visual Analysis Only</div>
+                <div className="text-sm text-gray-500">Best for videos with background music or no important speech</div>
+              </div>
+            </button>
+            
+            <button
+              onClick={() => {
+                setVideoProcessingType('audio');
+                setShowVideoOptions(false); // Hide modal immediately
+                processVideoWithOption('audio');
+              }}
+              className="w-full p-4 border border-purple-200 rounded-lg flex items-center space-x-3 hover:bg-purple-50 transition-colors"
+            >
+              <div className="bg-purple-100 p-2 rounded-full text-purple-600">
+                <FiHeadphones className="w-6 h-6" />
+              </div>
+              <div className="text-left">
+                <div className="font-medium">Audio Analysis</div>
+                <div className="text-sm text-gray-500">Focus on speech in the video (educational content, explanations)</div>
+              </div>
+            </button>
+          </div>
+          
+          <div className="mt-6 flex justify-end">
+            <button
+              onClick={() => {
+                setShowVideoOptions(false);
+                setPendingVideoUpload(null);
+                setMediaPreview(null);
+              }}
+              className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   // Expose methods to parent component
   useImperativeHandle(ref, () => ({
-    clearChatHistory
+    clearChatHistory,
+    openSettings: () => setShowSettings(true)
   }));
+
+  // Add the polling function
+  const createVideoPolling = (
+    option: 'auto' | 'visual' | 'audio' | 'comprehensive',
+    requestId: string,
+    updateProgress?: (progress: string) => void
+  ) => {
+    return async (initialData: any) => {
+      try {
+        if (updateProgress) {
+          updateProgress(`Processing video (0%)...`);
+        }
+        
+        // Initialize variables for polling
+        let status = 'processing';
+        let attempts = 0;
+        const maxAttempts = 60; // Increase from 30 to 60 (up to 10 minutes total with 10s interval)
+        const pollingInterval = 10000; // 10 seconds between checks
+        
+        // If we already have a completed result, return it immediately
+        if (initialData.status === 'completed') {
+          if (updateProgress) {
+            updateProgress(`Video processing complete (100%)`);
+          }
+          return initialData;
+        }
+        
+        // Get the job ID from the initial response
+        const jobId = initialData.job_id || requestId;
+        
+        // Poll until completion or max attempts reached
+        while (status === 'processing' && attempts < maxAttempts) {
+          attempts++;
+          
+          // Calculate a more gradual progress percentage based on attempts
+          // Use a logarithmic scale to show faster initial progress and slower later progress
+          const progressPercent = Math.min(Math.floor((Math.log(attempts + 1) / Math.log(maxAttempts + 1)) * 100), 95);
+          
+          if (updateProgress) {
+            updateProgress(`Processing video (${progressPercent}%)...`);
+          }
+          
+          await new Promise(resolve => setTimeout(resolve, pollingInterval));
+          
+          // Check status
+          const statusResponse = await fetch(`/api/job-status/${jobId}`);
+          
+          if (!statusResponse.ok) {
+            throw new Error(`Failed to get job status: ${statusResponse.statusText}`);
+          }
+          
+          const statusData = await statusResponse.json();
+          
+          // If job completed or failed, update status
+          if (statusData.status === 'completed') {
+            status = 'completed';
+            if (updateProgress) {
+              updateProgress(`Video processing complete (100%)`);
+            }
+            return statusData.result;
+          } else if (statusData.status === 'failed') {
+            status = 'failed';
+            throw new Error(statusData.error || 'Video processing failed');
+          } else if (statusData.status === 'pending') {
+            // Continue polling for 'pending' status
+            status = 'processing';
+          }
+        }
+        
+        // If we reach here, we've hit the maximum attempts
+        if (status === 'processing') {
+          if (updateProgress) {
+            updateProgress(`Video still processing... The server will continue working, but results will be delivered when ready.`);
+          }
+          // Instead of throwing an error, return a special status that indicates we're still processing
+          return {
+            status: 'pending',
+            message: 'The video is still being processed. The results will appear when processing completes. You can continue using the chat in the meantime.'
+          };
+        }
+        
+        throw new Error('Video processing failed with an unknown error');
+      } catch (error) {
+        console.error('Error polling video job:', error);
+        throw error;
+      }
+    };
+  };
+
+  // Add a visible indicator of what's being recognized
+  const ListeningIndicator = () => {
+    return (
+      <div className="w-full border-2 border-purple-300 rounded-full py-2 px-4 bg-white dark:bg-gray-800 dark:border-gray-700 shadow-inner">
+        <div className="flex items-center justify-between">
+          <div className="text-purple-600 flex items-center">
+            <span className="text-sm">Listening</span>
+            <span className="ml-1 flex">
+              <span className="animate-bounce mx-0.5 delay-0">.</span>
+              <span className="animate-bounce mx-0.5 delay-100">.</span>
+              <span className="animate-bounce mx-0.5 delay-200">.</span>
+            </span>
+          </div>
+          {speechText && (
+            <div className="text-gray-700 dark:text-gray-300 text-sm truncate max-w-[70%]">
+              {speechText}
+            </div>
+          )}
+          <div className="text-xs text-gray-500">
+            Waiting for you to finish speaking...
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <>
@@ -953,180 +1904,233 @@ const ChatInterface = forwardRef<{ clearChatHistory: () => void }, ChatInterface
         {/* Network status banner */}
         {renderNetworkStatusBanner()}
         
-        {/* Chat message area */}
-        <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-3 sm:space-y-4">
+        {/* Chat message area - Add padding at the bottom to account for fixed input area */}
+        <div className="flex-1 overflow-y-auto p-3 sm:p-4 pb-24 space-y-3 sm:space-y-4">
           {messages.map(message => (
             <div
               key={message.id}
-              className={`flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'}`}
+              className={`
+                flex items-start
+                ${message.sender === 'user' ? 'justify-end' : 'justify-start'}
+                ${message.mediaUrl ? 'media-message' : ''}
+              `}
             >
-              <div 
-                className={`relative max-w-[90%] sm:max-w-[80%] rounded-lg p-3 group ${
-                  message.sender === 'user'
-                    ? 'bg-purple-600 text-white rounded-br-none' 
-                    : userPreferences.theme === 'dark'
-                      ? 'bg-gray-700 text-white rounded-bl-none'
-                      : 'bg-white border border-gray-200 rounded-bl-none shadow-sm'
-                }`}
-              >
-                {/* Message content */}
-                <div className={message.type === 'text' ? userPreferences.fontSize : ''}>
-                  {message.type === 'text' && (
-                    <FormattedResponse 
-                      content={message.content} 
-                      typingSpeed={userPreferences.typingSpeed}
-                      enableAnimations={userPreferences.enableAnimations}
+              {/* Message content */}
+              <div className={`
+                max-w-[80%] rounded-lg p-3 
+                ${message.sender === 'user' 
+                  ? 'bg-purple-600 text-white ml-4 rounded-tr-none'
+                  : 'bg-white border border-gray-200 mr-4 rounded-tl-none'}
+                ${userPreferences.theme === 'dark' && message.sender === 'bot' ? 'bg-gray-700 border-gray-600 text-white' : ''}
+                relative group
+              `}>
+                {/* Message content based on type */}
+                {message.type === 'text' ? (
+                  <FormattedResponse 
+                    content={message.content} 
+                    typingSpeed={userPreferences.typingSpeed} 
+                    enableAnimations={userPreferences.enableAnimations}
+                  />
+                ) : message.type === 'image' && message.mediaUrl ? (
+                  <div>
+                    <img 
+                      src={message.mediaUrl} 
+                      alt="Uploaded" 
+                      className="max-w-full h-auto rounded" 
+                      style={{ maxHeight: '300px' }}
                     />
-                  )}
-                  {message.type === 'image' && message.mediaUrl && (
-                    <div className="mt-2">
-                      <img
-                        src={message.mediaUrl}
-                        alt="Uploaded"
-                        className="max-w-full rounded"
-                      />
-                    </div>
-                  )}
-                  {message.type === 'video' && message.mediaUrl && (
-                    <div className="mt-2">
-                      <video
-                        src={message.mediaUrl}
-                        controls
-                        className="max-w-full rounded"
-                      />
-                    </div>
-                  )}
-                  {message.type === 'audio' && message.mediaUrl && (
-                    <div className="mt-2">
-                      <audio
-                        src={message.mediaUrl}
-                        controls
-                        className="max-w-full"
-                      />
-                    </div>
-                  )}
-                </div>
+                    {message.content && message.content !== message.mediaUrl && (
+                      <div className="mt-2">
+                        <FormattedResponse 
+                          content={message.content} 
+                          typingSpeed={userPreferences.typingSpeed} 
+                          enableAnimations={userPreferences.enableAnimations}
+                        />
+                      </div>
+                    )}
+                  </div>
+                ) : message.type === 'video' && message.mediaUrl ? (
+                  <div>
+                    <video 
+                      src={message.mediaUrl} 
+                      controls 
+                      className="max-w-full h-auto rounded" 
+                      style={{ maxHeight: '300px' }}
+                    />
+                    {message.content && message.content !== message.mediaUrl && (
+                      <div className="mt-2">
+                        <FormattedResponse 
+                          content={message.content} 
+                          typingSpeed={userPreferences.typingSpeed} 
+                          enableAnimations={userPreferences.enableAnimations}
+                        />
+                      </div>
+                    )}
+                  </div>
+                ) : message.type === 'audio' && message.mediaUrl ? (
+                  <div>
+                    <AudioResponse 
+                      text={message.content}
+                      language={targetLanguage}
+                    />
+                  </div>
+                ) : (
+                  <div className="text-sm">{message.content}</div>
+                )}
                 
-                {/* Message sharing options */}
-                <MessageActions message={message} />
-                
+                {/* Message status indicator */}
                 {getMessageStatus(message)}
+                
+                {/* Message actions for bot messages (copy, share, etc.) */}
+                <MessageActions message={message} />
               </div>
             </div>
           ))}
+          
+          {/* Empty div for scrolling to bottom */}
           <div ref={messagesEndRef} />
         </div>
         
-        {/* Chat input area */}
-        <div className="border-t border-gray-200 p-3 sm:p-4 bg-white">
-          <div className="flex items-start space-x-2">
-            <div className="flex-1 relative overflow-hidden transition-all">
-              <textarea
-                className="w-full p-3 pb-10 focus:outline-none resize-none bg-white text-gray-700 placeholder-gray-400 rounded-xl border-2 border-purple-100 focus:border-purple-300 focus:ring-4 focus:ring-purple-100 shadow-sm"
-                placeholder={isRecording ? "Listening..." : "Type your health question here..."}
-                value={inputText}
-                onChange={(e) => setInputText(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    if (inputText.trim()) {
-                      handleSendMessage(inputText);
-                      setInputText('');
-                    }
-                  }
-                }}
-                rows={1}
-                aria-label="Message input"
-                style={{ minHeight: '50px', maxHeight: '150px' }}
+        {/* Media preview */}
+        {mediaPreview && (
+          <div className="px-4 pt-2 fixed bottom-[70px] left-0 right-0 z-10 bg-white/90 border-t border-gray-200">
+            <div className="relative inline-block">
+              <img 
+                src={mediaPreview} 
+                alt="Media preview" 
+                className="h-16 w-auto rounded border border-gray-300"
+              />
+              <button
+                onClick={() => setMediaPreview(null)}
+                className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 shadow-md hover:bg-red-600"
+                aria-label="Remove media preview"
+              >
+                <FiX className="w-3 h-3" />
+              </button>
+            </div>
+          </div>
+        )}
+        
+        {/* Input area - Fixed at the bottom */}
+        <div className="p-2 sm:p-3 border-t-2 border-gray-300 bg-white dark:bg-gray-900 fixed bottom-0 left-0 right-0 z-10 shadow-lg">
+          <div className="flex flex-col sm:flex-row">
+            {/* Media controls for mobile - show in a row above the input on small screens */}
+            <div className="flex mb-2 justify-center space-x-2 sm:hidden">
+              {userPreferences.enableVoiceInput && (
+                <button
+                  onClick={toggleSpeechRecognition}
+                  className={`p-2 rounded-full ${isRecording ? 'bg-red-500 text-white animate-pulse' : 'bg-purple-100 text-purple-600 hover:bg-purple-200'}`}
+                  aria-label={isRecording ? "Stop recording" : "Start voice input"}
+                >
+                  {isRecording ? <FiMicOff className="w-5 h-5" /> : <FiMic className="w-5 h-5" />}
+                </button>
+              )}
+              
+              <MediaUpload 
+                onFileSelect={(file) => handleMediaUpload(file, 'image')} 
+                accept="image/*"
+                icon={<FiImage className="w-5 h-5" />}
+                buttonAriaLabel="Upload image"
+              />
+              <MediaUpload 
+                onFileSelect={(file) => handleMediaUpload(file, 'video')} 
+                accept="video/*"
+                icon={<FiVideo className="w-5 h-5" />}
+                buttonAriaLabel="Upload video"
+              />
+              <MediaUpload 
+                onFileSelect={(file) => handleMediaUpload(file, 'audio')} 
+                accept="audio/*"
+                icon={<FiHeadphones className="w-5 h-5" />}
+                buttonAriaLabel="Upload audio recording"
               />
               
-              {/* Controls inside textarea */}
-              <div className="absolute bottom-2 left-2 flex items-center space-x-2">
-                <MediaUpload
-                  onFileSelect={(file) => handleMediaUpload(file, 'image')}
-                  accept="image/*"
-                  icon={<FiImage className="w-5 h-5 text-purple-500" />}
-                  buttonAriaLabel="Upload image"
-                />
-                <MediaUpload
-                  onFileSelect={(file) => handleMediaUpload(file, 'video')}
-                  accept="video/*"
-                  icon={<FiVideo className="w-5 h-5 text-purple-500" />}
-                  buttonAriaLabel="Upload video"
-                />
-                <MediaUpload
-                  onFileSelect={(file) => handleMediaUpload(file, 'audio')}
-                  accept="audio/*"
-                  icon={<FiMic className="w-5 h-5 text-purple-500" />}
-                  buttonAriaLabel="Upload audio"
-                />
-                <button
-                  onClick={() => setShowSettings(true)}
-                  className="p-1.5 rounded-full hover:bg-purple-50 text-purple-500 transition-colors"
-                  aria-label="Settings"
-                  title="Settings"
-                >
-                  <FiSettings className="w-5 h-5" />
-                </button>
+              {/* Settings and Clear History buttons removed from mobile */}
+            </div>
+
+            <div className="flex items-center w-full">
+              <div className="flex-1 relative">
+                {showListeningIndicator ? (
+                  <ListeningIndicator />
+                ) : (
+                  <textarea
+                    value={inputText}
+                    onChange={(e) => setInputText(e.target.value)}
+                    placeholder="Type your health-related question..."
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        if (inputText.trim()) {
+                          handleSendMessage(inputText.trim());
+                          setInputText('');
+                        }
+                      }
+                    }}
+                    className="w-full border-2 border-purple-300 rounded-full py-2 pl-4 pr-12 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-400 resize-none dark:bg-gray-800 dark:border-gray-700 dark:text-white shadow-inner"
+                    rows={1}
+                    style={{ minHeight: '44px', maxHeight: '120px' }}
+                  />
+                )}
+                {!showListeningIndicator && (
+                  <button
+                    onClick={() => {
+                      if (inputText.trim()) {
+                        handleSendMessage(inputText.trim());
+                        setInputText('');
+                      }
+                    }}
+                    disabled={isLoading}
+                    className="absolute right-2 top-1/2 transform -translate-y-1/2 text-purple-600 p-1 rounded-full hover:bg-purple-50 dark:hover:bg-gray-700"
+                    aria-label="Send message"
+                  >
+                    <FiSend className="w-5 h-5" />
+                  </button>
+                )}
               </div>
               
-              {isLoading && (
-                <div className="absolute bottom-2 right-4 text-purple-500">
-                  <FiLoader className="animate-spin" />
-                </div>
-              )}
-            </div>
-            
-            <button
-              onClick={toggleSpeechRecognition}
-              className={`p-3 rounded-xl ${
-                isRecording 
-                  ? 'bg-red-500 text-white hover:bg-red-600' 
-                  : 'bg-purple-50 hover:bg-purple-100 text-purple-500 border-2 border-purple-100'
-              } focus:outline-none focus:ring-2 focus:ring-purple-300 transition-all shadow-sm`}
-              aria-label={isRecording ? "Stop recording" : "Start voice input"}
-              title={isRecording ? "Stop recording" : "Speak your question"}
-            >
-              {isRecording ? <FiMicOff className="w-5 h-5" /> : <FiMic className="w-5 h-5" />}
-            </button>
-            
-            <button
-              className={`p-3 rounded-xl ${
-                inputText.trim() 
-                  ? 'bg-purple-600 text-white hover:bg-purple-700 border-2 border-purple-600' 
-                  : 'bg-purple-200 text-white cursor-not-allowed border-2 border-purple-200'
-              } focus:outline-none focus:ring-2 focus:ring-purple-300 transition-all shadow-sm`}
-              onClick={() => {
-                if (inputText.trim()) {
-                  handleSendMessage(inputText);
-                  setInputText('');
-                }
-              }}
-              disabled={isLoading || !inputText.trim()}
-              aria-label="Send message"
-            >
-              <FiSend className="w-5 h-5" />
-            </button>
-          </div>
-          
-          {/* Typing indicator */}
-          {isLoading && (
-            <div className="text-xs text-gray-500 mt-2 flex items-center">
-              <div className="mr-2">Afya Siri is typing</div>
-              <div className="flex space-x-1">
-                <div className="w-1 h-1 bg-purple-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                <div className="w-1 h-1 bg-purple-500 rounded-full animate-bounce" style={{ animationDelay: '200ms' }}></div>
-                <div className="w-1 h-1 bg-purple-500 rounded-full animate-bounce" style={{ animationDelay: '400ms' }}></div>
+              {/* Media controls for desktop - show to the right of the input on larger screens */}
+              <div className="hidden sm:flex ml-2 space-x-2">
+                {userPreferences.enableVoiceInput && (
+                  <button
+                    onClick={toggleSpeechRecognition}
+                    className={`p-2 rounded-full ${isRecording ? 'bg-red-500 text-white animate-pulse' : 'bg-purple-100 text-purple-600 hover:bg-purple-200'}`}
+                    aria-label={isRecording ? "Stop recording" : "Start voice input"}
+                  >
+                    {isRecording ? <FiMicOff className="w-5 h-5" /> : <FiMic className="w-5 h-5" />}
+                  </button>
+                )}
+                
+                <MediaUpload 
+                  onFileSelect={(file) => handleMediaUpload(file, 'image')} 
+                  accept="image/*"
+                  icon={<FiImage className="w-5 h-5" />}
+                  buttonAriaLabel="Upload image"
+                />
+                <MediaUpload 
+                  onFileSelect={(file) => handleMediaUpload(file, 'video')} 
+                  accept="video/*"
+                  icon={<FiVideo className="w-5 h-5" />}
+                  buttonAriaLabel="Upload video"
+                />
+                <MediaUpload 
+                  onFileSelect={(file) => handleMediaUpload(file, 'audio')} 
+                  accept="audio/*"
+                  icon={<FiHeadphones className="w-5 h-5" />}
+                  buttonAriaLabel="Upload audio recording"
+                />
               </div>
             </div>
-          )}
+          </div>
         </div>
       </div>
       
-      {/* Render settings modal */}
+      {/* Settings modal */}
       <SettingsModal />
+      
+      {/* Video options modal */}
+      <VideoOptionsModal />
     </>
   );
 });
 
-export default ChatInterface; 
+export default ChatInterface;

@@ -42,7 +42,7 @@ def validate_file_type(file, allowed_types: Set[str]) -> bool:
     ext = os.path.splitext(file.filename.lower())[1]
     return ext in allowed_types
 
-async def save_uploaded_file(file, filename: str, file_type: str) -> str:
+def save_uploaded_file(file, filename: str, file_type: str) -> str:
     """
     Save an uploaded file to a temporary location.
     
@@ -64,7 +64,7 @@ async def save_uploaded_file(file, filename: str, file_type: str) -> str:
         file_path = os.path.join(upload_dir, unique_filename)
         
         # Save file
-        await file.save(file_path)
+        file.save(file_path)
         
         # Set proper permissions
         os.chmod(file_path, 0o644)
@@ -105,7 +105,7 @@ def extract_frames_from_video(video_path, frame_interval=1):
     video.release()
     return frame_paths
 
-async def convert_audio_to_wav(audio_path):
+def convert_audio_to_wav(audio_path):
     """Convert audio file to WAV format for speech recognition."""
     try:
         # Get file extension

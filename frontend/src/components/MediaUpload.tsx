@@ -116,11 +116,11 @@ const MediaUpload: React.FC<MediaUploadProps> = ({
       <button
         onClick={handleUploadClick}
         disabled={isLoading}
-        className="p-2 rounded-full hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 transition relative"
+        className="p-2 rounded-full bg-purple-100 text-purple-600 hover:bg-purple-200 focus:outline-none focus:ring-2 focus:ring-purple-300 transition relative"
         aria-label={buttonAriaLabel}
         title={buttonAriaLabel}
       >
-        {isLoading ? <FiLoader className="animate-spin text-blue-500" /> : icon}
+        {isLoading ? <FiLoader className="animate-spin text-purple-600" /> : icon}
       </button>
       
       {/* Progress overlay */}
@@ -132,7 +132,7 @@ const MediaUpload: React.FC<MediaUploadProps> = ({
           </div>
           <div className="h-1.5 w-full bg-gray-200 rounded-full overflow-hidden">
             <div 
-              className="h-full bg-blue-500 transition-all duration-300 ease-out"
+              className="h-full bg-purple-500 transition-all duration-300 ease-out"
               style={{ width: `${uploadProgress}%` }}
             ></div>
           </div>

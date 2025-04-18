@@ -23,7 +23,6 @@ COPY . .
 RUN mkdir -p uploads/frames data/chroma
 
 # Set environment variables
-ENV FLASK_APP=run.py
 ENV FLASK_ENV=production
 ENV PYTHONUNBUFFERED=1
 
@@ -31,4 +30,4 @@ ENV PYTHONUNBUFFERED=1
 EXPOSE 5000
 
 # Run the application
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "run:app"] 
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "server:app"] 

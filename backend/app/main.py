@@ -14,9 +14,18 @@ load_dotenv()
 app = FastAPI(title="Afya Siri API")
 
 # Configure CORS
+origins = [
+    "http://localhost:3000",
+    "https://healthwise-afya-siri.vercel.app",
+]
+
+if os.getenv("ALLOWED_ORIGINS"):
+    additional_origins = os.getenv("ALLOWED_ORIGINS").split(",")
+    origins.extend(additional_origins)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # Frontend URL
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -174,6 +183,11 @@ async def add_knowledge(text: str, metadata: Optional[dict] = None):
         return {"id": doc_id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/health")
+async def health_check():
+    """Health check endpoint for monitoring."""
+    return {"status": "healthy"}
 
 if __name__ == "__main__":
     import uvicorn

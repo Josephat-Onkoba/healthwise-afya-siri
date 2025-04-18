@@ -1,23 +1,55 @@
-quart==0.19.4
-quart-cors==0.7.0
+flask==2.3.3
+flask-cors==4.0.0
 python-dotenv==1.0.1
+gunicorn==21.2.0
+werkzeug==2.3.7
+fastapi==0.104.1
+uvicorn==0.23.2
+
+# API and ML Libraries
+openai==1.14.2
+langchain==0.0.273
+langchain_openai==0.0.5
+langchain_community==0.0.13
+langchain-groq==0.1.7
 google-generativeai==0.3.2
+google-cloud-translate==3.11.1
+pydantic==2.5.3
+
+# Database
+chromadb==0.4.18
+
+# Data Processing
+numpy==1.24.3
+pandas>=2.0.0
+scikit-learn>=1.2.2
+sentence-transformers>=2.2.2
+
+# Media Processing
+Pillow==10.0.0
 pytesseract==0.3.10
 moviepy==1.0.3
-deep-translator==1.11.4
-Pillow>=10.0.0
-numpy>=1.24.0
-pandas>=2.0.0
-sentence-transformers
-scikit-learn
-gunicorn==21.2.0
-pytest==8.0.2
-black==24.2.0
-flake8==7.0.0
-python-jose==3.3.0
-requests==2.31.0
-setuptools>=65.5.1
-wheel>=0.38.4
+pymupdf==1.23.7
+opencv-python>=4.5.0
+python-magic==0.4.27
+python-magic-bin==0.4.14
 SpeechRecognition==3.10.0
 pydub==0.25.1
-hypercorn==0.15.0 
+
+# Translation
+deep-translator==1.11.4
+
+# Task Queue
+celery==5.3.4
+redis==5.0.1
+
+# Utilities
+requests==2.31.0
+python-jose==3.3.0
+setuptools>=65.5.1
+wheel>=0.38.4
+
+# Development
+pytest==8.0.2
+black==24.2.0
+flake8==7.0.0 

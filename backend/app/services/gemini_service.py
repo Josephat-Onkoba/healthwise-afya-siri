@@ -11,6 +11,7 @@ from typing import Dict, List, Optional, Union, Any
 import cv2
 from moviepy.editor import VideoFileClip
 import pytesseract
+import logging
 
 # Load environment variables
 load_dotenv()
@@ -21,6 +22,8 @@ if not GEMINI_API_KEY:
     raise ValueError("GEMINI_API_KEY environment variable not set")
 
 genai.configure(api_key=GEMINI_API_KEY)
+
+logger = logging.getLogger(__name__)
 
 class GeminiService:
     """Service for interacting with Google's Gemini API."""
@@ -51,7 +54,7 @@ class GeminiService:
             print(f"Error initializing Gemini models: {str(e)}")
             raise
     
-    async def generate_text_response(
+    def generate_text_response(
         self,
         message: str,
         language: str = "en",
@@ -147,8 +150,6 @@ Response:"""
             
             # Check if response was blocked
             if response.prompt_feedback.block_reason:
-                import logging
-                logger = logging.getLogger(__name__)
                 logger.warning(f"Response blocked: {response.prompt_feedback.block_reason}")
                 return "I apologize, but I cannot provide a response to this query due to content safety concerns. Please try rephrasing your question in a more general way."
             
@@ -167,12 +168,10 @@ Response:"""
             return response_text
                 
         except Exception as e:
-            import logging
-            logger = logging.getLogger(__name__)
             logger.error(f"Error generating text response: {str(e)}")
             return f"I apologize, but I encountered an error: {str(e)}. Please try again."
     
-    async def analyze_image(self, image_data: bytes, prompt: str = None) -> str:
+    def analyze_image(self, image_data: bytes, prompt: str = None) -> str:
         """Analyze an image using Gemini Vision."""
         try:
             # Convert image data to PIL Image
@@ -216,288 +215,88 @@ Response:"""
                 }
             ]
             
-            # Generate response
+            # Generate content with vision model
             response = self.vision_model.generate_content(
                 [prompt, image],
                 safety_settings=safety_settings,
                 generation_config=self.generation_config
             )
             
-            if not response or not response.text:
-                return "I couldn't analyze this image. Please try again."
-                
-            return response.text.strip()
-        except Exception as e:
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.error(f"Error analyzing image: {str(e)}")
-            return f"I encountered an error analyzing the image: {str(e)}"
-    
-    async def analyze_video(self, video_path: str, prompt: str = None, max_frames: int = 10) -> str:
-        """
-        Analyze a video file by extracting and analyzing key frames.
-        
-        Args:
-            video_path: Path to the video file
-            prompt: Custom prompt for analysis
-            max_frames: Maximum number of frames to analyze
-            
-        Returns:
-            Analysis of the video content
-        """
-        try:
-            # Default prompt if none provided
-            if not prompt:
-                prompt = """Analyze this video in the context of sexual and reproductive health. Consider:
-                1. Health-related aspects and concerns
-                2. Educational value for understanding sexual and reproductive health
-                3. Signs or symptoms that might indicate health issues
-                4. Appropriate healthcare resources and recommendations
-                
-                Provide a description that:
-                - Uses appropriate medical terminology
-                - Maintains a professional, educational tone
-                - Focuses on health information
-                - Suggests appropriate healthcare resources
-                - Uses clear and accessible language
-                
-                Please describe what you see in the video, focusing on health-related aspects."""
-            
-            # Extract frames from video
-            frames = await self._extract_video_frames(video_path, max_frames)
-            if not frames:
-                return "I couldn't extract any frames from the video for analysis."
-            
-            # Set up safety settings for frame analysis
-            safety_settings = [
-                {
-                    "category": "HARM_CATEGORY_HARASSMENT",
-                    "threshold": "BLOCK_NONE"
-                },
-                {
-                    "category": "HARM_CATEGORY_HATE_SPEECH",
-                    "threshold": "BLOCK_NONE"
-                },
-                {
-                    "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-                    "threshold": "BLOCK_NONE"
-                },
-                {
-                    "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
-                    "threshold": "BLOCK_NONE"
-                }
-            ]
-            
-            # Analyze each frame and combine results
-            frame_analyses = []
-            
-            for i, frame in enumerate(frames):
-                try:
-                    # Convert the frame to PIL Image
-                    pil_image = Image.fromarray(frame)
-                    
-                    # Generate frame prompt
-                    frame_prompt = f"Frame {i+1}: {prompt}"
-                    
-                    # Generate analysis for this frame
-                    response = self.vision_model.generate_content(
-                        [frame_prompt, pil_image],
-                        safety_settings=safety_settings,
-                        generation_config=self.generation_config
-                    )
-                    
-                    if response and response.text:
-                        frame_analyses.append(f"Frame {i+1} Analysis: {response.text.strip()}")
-                except Exception as e:
-                    print(f"Error analyzing frame {i+1}: {str(e)}")
-                    continue
-            
-            if not frame_analyses:
-                return "I couldn't analyze the frames from this video. Please try a different video."
-            
-            # Combine frame analyses into one text
-            combined_analyses = "\n\n".join(frame_analyses)
-            
-            # Generate overall summary
-            return await self._summarize_video_analysis(combined_analyses)
-        
-        except Exception as e:
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.error(f"Error analyzing video: {str(e)}")
-            return f"An error occurred while processing your video: {str(e)}"
-    
-    async def _extract_video_frames(self, video_path: str, max_frames: int = 10) -> list:
-        """
-        Extract key frames from a video file.
-        
-        Args:
-            video_path: Path to the video file
-            max_frames: Maximum number of frames to extract
-            
-        Returns:
-            List of PIL Image objects
-        """
-        try:
-            # Check if file exists
-            if not os.path.exists(video_path):
-                print(f"Video file not found at path: {video_path}")
-                return []
-            
-            print(f"Opening video file: {video_path}")
-            # Open the video
-            video = cv2.VideoCapture(video_path)
-            
-            if not video.isOpened():
-                print("Error opening video stream or file")
-                return []
-            
-            # Get video properties
-            frame_count = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
-            fps = video.get(cv2.CAP_PROP_FPS)
-            duration = frame_count / fps if fps > 0 else 0
-            
-            print(f"Video properties: {frame_count} frames, {fps} fps, {duration:.2f} seconds")
-            
-            if frame_count <= 0:
-                print("No frames found in video")
-                return []
-            
-            # Calculate frame intervals for even distribution
-            if frame_count <= max_frames:
-                # If video has fewer frames than max_frames, use all frames
-                frame_indices = range(frame_count)
+            # Extract and return the response text
+            if hasattr(response, 'text') and response.text:
+                return response.text
+            elif hasattr(response, 'parts') and response.parts:
+                return response.parts[0].text
             else:
-                # Otherwise, pick evenly distributed frames
-                frame_indices = [int(i * frame_count / max_frames) for i in range(max_frames)]
-            
-            # Extract frames
-            frames = []
-            for idx in frame_indices:
-                video.set(cv2.CAP_PROP_POS_FRAMES, idx)
-                success, frame = video.read()
+                return "I couldn't analyze the image properly. Please try another image."
                 
-                if success:
-                    # Convert from BGR to RGB (PIL uses RGB)
-                    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                    frames.append(frame_rgb)
-                else:
-                    print(f"Failed to extract frame at index {idx}")
-            
-            # Release the video capture object
-            video.release()
-            
-            print(f"Successfully extracted {len(frames)} frames from video")
-            return frames
-            
         except Exception as e:
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.error(f"Error extracting frames from video: {str(e)}")
-            print(f"Error extracting frames: {str(e)}")
-            return []
+            logger.error(f"Error analyzing image: {str(e)}")
+            return f"I encountered an error analyzing this image: {str(e)}"
     
-    async def _summarize_video_analysis(self, analyses: str) -> str:
-        """
-        Summarize the analyses of video frames.
-        
-        Args:
-            analyses: Concatenated analyses of video frames
-            
-        Returns:
-            Summary of the video content
-        """
+    def summarize_video_analysis(self, analyses: str) -> str:
+        """Summarize multiple frame analyses into a coherent description."""
         try:
-            # Generate a summary using the text model
-            prompt = f"""You are Afya Siri, a professional sexual and reproductive health educator.
-            
-            Below are analyses of frames from a video. Please provide a comprehensive summary that:
-            1. Identifies the main health-related themes or topics
-            2. Highlights any educational content about sexual and reproductive health
-            3. Notes any potential health concerns or symptoms shown
-            4. Provides context for understanding the health implications
-            5. Maintains a professional, clinical tone throughout
-            
-            Frame Analyses:
-            {analyses}
-            
-            Please provide a well-structured summary with:
-            - A brief introduction
-            - Key health observations and educational points
-            - Any recommendations related to sexual and reproductive health
-            - A conclusion that emphasizes the importance of professional healthcare consultation when needed
-            
-            Summary:"""
-            
-            # Use explicit safety settings in correct format
-            safety_settings = [
-                {
-                    "category": "HARM_CATEGORY_HARASSMENT",
-                    "threshold": "BLOCK_NONE"
-                },
-                {
-                    "category": "HARM_CATEGORY_HATE_SPEECH",
-                    "threshold": "BLOCK_NONE"
-                },
-                {
-                    "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-                    "threshold": "BLOCK_NONE"
-                },
-                {
-                    "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
-                    "threshold": "BLOCK_NONE"
-                }
-            ]
-            
+            summary_prompt = f"""I've analyzed several frames from a video. Here are my observations:
+
+{analyses}
+
+Please provide a comprehensive summary that:
+1. Identifies the main health-related themes or topics
+2. Highlights any educational content about sexual and reproductive health
+3. Notes any potential health concerns or symptoms shown
+4. Provides context for understanding the health implications
+5. Maintains a professional, clinical tone throughout
+
+The summary should be well-structured with:
+- A brief introduction
+- Key health observations and educational points
+- Any recommendations related to sexual and reproductive health
+- A conclusion that emphasizes the importance of professional healthcare consultation when needed"""
+
+            # Generate response
             response = self.text_model.generate_content(
-                prompt,
-                safety_settings=safety_settings,
+                summary_prompt,
+                safety_settings=[
+                    {
+                        "category": "HARM_CATEGORY_HARASSMENT",
+                        "threshold": "BLOCK_NONE"
+                    },
+                    {
+                        "category": "HARM_CATEGORY_HATE_SPEECH",
+                        "threshold": "BLOCK_NONE"
+                    },
+                    {
+                        "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                        "threshold": "BLOCK_NONE"
+                    },
+                    {
+                        "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+                        "threshold": "BLOCK_NONE"
+                    }
+                ],
                 generation_config=self.generation_config
             )
             
-            if not response or not response.text:
-                return "I couldn't generate a summary of the video content."
+            # Extract text from response
+            if hasattr(response, 'text') and response.text:
+                return f"Video Analysis Summary:\n\n{response.text}"
+            elif hasattr(response, 'parts') and response.parts:
+                return f"Video Analysis Summary:\n\n{response.parts[0].text}"
+            else:
+                return "Could not generate a summary for this video."
                 
-            return response.text.strip()
-            
         except Exception as e:
-            import logging
-            logger = logging.getLogger(__name__)
             logger.error(f"Error summarizing video analysis: {str(e)}")
-            return "I encountered an error while summarizing the video content."
-    
-    async def extract_text_from_image(self, image_data: bytes) -> str:
-        """Extract text from an image using OCR."""
-        try:
-            # Convert image data to PIL Image
-            image = Image.open(io.BytesIO(image_data))
-            
-            # Convert to numpy array for OpenCV
-            img_array = np.array(image)
-            
-            # Convert to grayscale
-            gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
-            
-            # Apply thresholding to preprocess the image
-            _, binary = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-            
-            # Perform OCR
-            text = pytesseract.image_to_string(binary)
-            
-            return text.strip() if text else ""
-        except Exception as e:
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.error(f"Error extracting text from image: {str(e)}")
-            return ""
+            return f"Video Analysis Results (Summary unavailable):\n\n{analyses}"
 
     @staticmethod
-    async def analyze_video(video_path: str, query: str, max_frames: int = 5) -> str:
+    def analyze_video(video_path: str, query: str, max_frames: int = 5) -> str:
         """Analyze a video file and generate a description based on key frames."""
         try:
             # This is a wrapper to make the old static method async-compatible
             gemini_service = GeminiService()
-            return await gemini_service.analyze_video(video_path, query, max_frames)
+            return gemini_service.analyze_video(video_path, query, max_frames)
         except Exception as e:
             print(f"Error in analyze_video: {str(e)}")
             return f"Error analyzing video: {str(e)}"
