@@ -458,6 +458,16 @@ const ChatInterface = forwardRef<{ clearChatHistory: () => void; openSettings: (
       const data = await response.json();
       console.log('Received response:', data);
       
+      // For debugging image analysis issues
+      if (type === 'image') {
+        console.log('Image analysis response details:', {
+          hasResult: !!data.result,
+          resultValue: data.result,
+          responseKeys: Object.keys(data),
+          fullResponseData: data
+        });
+      }
+      
       // Update user message status
       setMessages(prev => prev.map(msg => 
         msg.id === messageId ? { ...msg, status: 'sent' } : msg
@@ -469,7 +479,20 @@ const ChatInterface = forwardRef<{ clearChatHistory: () => void; openSettings: (
       if (type === 'text') {
         botContent = data.response || 'Sorry, I could not generate a response.';
       } else if (type === 'image') {
-        botContent = data.description || 'Sorry, I could not analyze this image.';
+        // Check for different response structures and common error patterns
+        if (data.result) {
+          botContent = data.result;
+        } else if (data.error) {
+          botContent = `Sorry, I could not analyze this image. Error: ${data.error}`;
+        } else if (data.message) {
+          botContent = `Sorry, I could not analyze this image. Message: ${data.message}`;
+        } else if (typeof data === 'object' && Object.keys(data).length === 0) {
+          botContent = 'Sorry, I received an empty response from the image analysis service.';
+        } else {
+          // For unexpected response formats
+          console.error('Unexpected image analysis response format:', data);
+          botContent = 'Sorry, I could not analyze this image. The response format was unexpected.';
+        }
       } else if (type === 'audio') {
         botContent = data.transcription || 'Sorry, I could not transcribe this audio.';
       }
@@ -1614,14 +1637,14 @@ const ChatInterface = forwardRef<{ clearChatHistory: () => void; openSettings: (
       let botContent = '';
       
       if (option === 'frames') {
-        botContent = data.description || data.visual_analysis || 'Sorry, I could not analyze this video.';
+        botContent = data.result || data.description || data.visual_analysis || 'Sorry, I could not analyze this video.';
       } else if (option === 'audio') {
-        if (data.transcript) {
+        if (data.transcript || data.result) {
           botContent = `
 ## Audio Analysis
 
 ### Transcript
-"${data.transcript}"
+"${data.transcript || data.result || ''}"
 
 ### Analysis
 ${data.analysis || 'No analysis available.'}
@@ -1634,7 +1657,7 @@ ${data.analysis || 'No analysis available.'}
         if (data.has_audio) {
           const audioTranscript = data.audio_transcript || '';
           const audioAnalysis = data.audio_analysis || '';
-          const visualAnalysis = data.visual_analysis || '';
+          const visualAnalysis = data.visual_analysis || data.result || '';
           
           botContent = `## Video Analysis\n\n`;
           botContent += `### Visual Content\n${visualAnalysis}\n\n`;
@@ -1647,7 +1670,7 @@ ${data.analysis || 'No analysis available.'}
             botContent += `### Audio Analysis\n${audioAnalysis}`;
           }
         } else {
-          botContent = data.visual_analysis || 
+          botContent = data.result || data.visual_analysis || 
                      data.description || 
                      data.error || 
                      'Sorry, I could not analyze this video.';
