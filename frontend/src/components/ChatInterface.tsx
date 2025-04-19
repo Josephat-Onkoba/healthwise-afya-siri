@@ -419,11 +419,11 @@ const ChatInterface = forwardRef<{ clearChatHistory: () => void; openSettings: (
             }
           } else {
             // Regular file upload processing for non-video files
-            response = await fetch(endpoint, {
-              method: 'POST',
-              body: formData,
-              signal
-            });
+          response = await fetch(endpoint, {
+            method: 'POST',
+            body: formData,
+            signal
+          });
           }
         } catch (error) {
           if (error instanceof DOMException && error.name === 'AbortError') {
@@ -464,7 +464,7 @@ const ChatInterface = forwardRef<{ clearChatHistory: () => void; openSettings: (
       } else if (type === 'audio') {
         botContent = data.transcription || 'Sorry, I could not transcribe this audio.';
       }
-      
+
       // Add bot response
       const botMessage: Message = {
         id: (Date.now() + 1).toString(),
@@ -843,19 +843,19 @@ const ChatInterface = forwardRef<{ clearChatHistory: () => void; openSettings: (
     let hasProcessedSpeech = false;
     
     const setupRecognition = () => {
-      if ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window) {
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window) {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         recognitionInstance = new SpeechRecognition();
         
         recognitionInstance.continuous = true;
         recognitionInstance.interimResults = true;
         recognitionInstance.maxAlternatives = 1;
         recognitionInstance.lang = targetLanguage === 'en' ? 'en-US' : 
-                          targetLanguage === 'sw' ? 'sw-KE' : 
-                          targetLanguage === 'ha' ? 'ha' : 
-                          targetLanguage === 'yo' ? 'yo' : 
-                          targetLanguage === 'ig' ? 'ig' : 'en-US';
-        
+                        targetLanguage === 'sw' ? 'sw-KE' : 
+                        targetLanguage === 'ha' ? 'ha' : 
+                        targetLanguage === 'yo' ? 'yo' : 
+                        targetLanguage === 'ig' ? 'ig' : 'en-US';
+      
         // Clear all previous event listeners
         recognitionInstance.onresult = null;
         recognitionInstance.onerror = null;
@@ -920,7 +920,7 @@ const ChatInterface = forwardRef<{ clearChatHistory: () => void; openSettings: (
         };
         
         recognitionInstance.onerror = (event: any) => {
-          console.error('Speech recognition error', event.error);
+        console.error('Speech recognition error', event.error);
           // Only clean up for fatal errors, not no-speech
           if (event.error !== 'no-speech') {
             cleanupRecognition();
@@ -952,7 +952,7 @@ const ChatInterface = forwardRef<{ clearChatHistory: () => void; openSettings: (
     
     // Setup clean function for recognition
     const cleanupRecognition = () => {
-      setIsRecording(false);
+        setIsRecording(false);
       setShowListeningIndicator(false);
       setSpeechText('');
       
@@ -1914,8 +1914,8 @@ ${data.analysis || 'No analysis available.'}
                 ${message.sender === 'user' ? 'justify-end' : 'justify-start'}
                 ${message.mediaUrl ? 'media-message' : ''}
               `}
-            >
-              {/* Message content */}
+              >
+                {/* Message content */}
               <div className={`
                 max-w-[80%] rounded-lg p-3 
                 ${message.sender === 'user' 
@@ -1926,16 +1926,16 @@ ${data.analysis || 'No analysis available.'}
               `}>
                 {/* Message content based on type */}
                 {message.type === 'text' ? (
-                  <FormattedResponse 
-                    content={message.content} 
-                    typingSpeed={userPreferences.typingSpeed} 
-                    enableAnimations={userPreferences.enableAnimations}
-                  />
+                    <FormattedResponse 
+                      content={message.content} 
+                      typingSpeed={userPreferences.typingSpeed}
+                      enableAnimations={userPreferences.enableAnimations}
+                    />
                 ) : message.type === 'image' && message.mediaUrl ? (
                   <div>
-                    <img 
-                      src={message.mediaUrl} 
-                      alt="Uploaded" 
+                      <img
+                        src={message.mediaUrl}
+                        alt="Uploaded"
                       className="max-w-full h-auto rounded" 
                       style={{ maxHeight: '300px' }}
                     />
@@ -1945,28 +1945,28 @@ ${data.analysis || 'No analysis available.'}
                           content={message.content} 
                           typingSpeed={userPreferences.typingSpeed} 
                           enableAnimations={userPreferences.enableAnimations}
-                        />
-                      </div>
-                    )}
+                      />
+                    </div>
+                  )}
                   </div>
                 ) : message.type === 'video' && message.mediaUrl ? (
                   <div>
-                    <video 
-                      src={message.mediaUrl} 
-                      controls 
+                      <video
+                        src={message.mediaUrl}
+                        controls
                       className="max-w-full h-auto rounded" 
                       style={{ maxHeight: '300px' }}
-                    />
+                      />
                     {message.content && message.content !== message.mediaUrl && (
-                      <div className="mt-2">
+                    <div className="mt-2">
                         <FormattedResponse 
                           content={message.content} 
                           typingSpeed={userPreferences.typingSpeed} 
                           enableAnimations={userPreferences.enableAnimations}
-                        />
-                      </div>
-                    )}
-                  </div>
+                      />
+                    </div>
+                  )}
+                </div>
                 ) : message.type === 'audio' && message.mediaUrl ? (
                   <div>
                     <AudioResponse 
@@ -2026,28 +2026,28 @@ ${data.analysis || 'No analysis available.'}
                 </button>
               )}
               
-              <MediaUpload 
-                onFileSelect={(file) => handleMediaUpload(file, 'image')} 
-                accept="image/*"
+                <MediaUpload
+                  onFileSelect={(file) => handleMediaUpload(file, 'image')}
+                  accept="image/*"
                 icon={<FiImage className="w-5 h-5" />}
-                buttonAriaLabel="Upload image"
-              />
-              <MediaUpload 
-                onFileSelect={(file) => handleMediaUpload(file, 'video')} 
-                accept="video/*"
+                  buttonAriaLabel="Upload image"
+                />
+                <MediaUpload
+                  onFileSelect={(file) => handleMediaUpload(file, 'video')}
+                  accept="video/*"
                 icon={<FiVideo className="w-5 h-5" />}
-                buttonAriaLabel="Upload video"
-              />
-              <MediaUpload 
-                onFileSelect={(file) => handleMediaUpload(file, 'audio')} 
-                accept="audio/*"
+                  buttonAriaLabel="Upload video"
+                />
+                <MediaUpload
+                  onFileSelect={(file) => handleMediaUpload(file, 'audio')}
+                  accept="audio/*"
                 icon={<FiHeadphones className="w-5 h-5" />}
                 buttonAriaLabel="Upload audio recording"
               />
               
               {/* Settings and Clear History buttons removed from mobile */}
             </div>
-
+            
             <div className="flex items-center w-full">
               <div className="flex-1 relative">
                 {showListeningIndicator ? (
@@ -2072,22 +2072,22 @@ ${data.analysis || 'No analysis available.'}
                   />
                 )}
                 {!showListeningIndicator && (
-                  <button
-                    onClick={() => {
-                      if (inputText.trim()) {
+            <button
+              onClick={() => {
+                if (inputText.trim()) {
                         handleSendMessage(inputText.trim());
-                        setInputText('');
-                      }
-                    }}
+                  setInputText('');
+                }
+              }}
                     disabled={isLoading}
                     className="absolute right-2 top-1/2 transform -translate-y-1/2 text-purple-600 p-1 rounded-full hover:bg-purple-50 dark:hover:bg-gray-700"
-                    aria-label="Send message"
-                  >
-                    <FiSend className="w-5 h-5" />
-                  </button>
+              aria-label="Send message"
+            >
+              <FiSend className="w-5 h-5" />
+            </button>
                 )}
-              </div>
-              
+          </div>
+          
               {/* Media controls for desktop - show to the right of the input on larger screens */}
               <div className="hidden sm:flex ml-2 space-x-2">
                 {userPreferences.enableVoiceInput && (
@@ -2133,4 +2133,4 @@ ${data.analysis || 'No analysis available.'}
   );
 });
 
-export default ChatInterface;
+export default ChatInterface; 

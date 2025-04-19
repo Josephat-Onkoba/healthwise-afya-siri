@@ -11,7 +11,7 @@ openai==1.14.2
 langchain==0.0.273
 langchain_openai==0.0.5
 langchain_community==0.0.13
-langchain-groq==0.1.7
+langchain-groq==0.1.8
 google-generativeai==0.3.2
 google-cloud-translate==3.11.1
 pydantic==2.5.3

@@ -619,7 +619,7 @@ def process_video(video_path: str, target_language: str = "en") -> str:
         except Exception as e:
             logger.error(f"Error extracting frames: {str(e)}")
             return f"An error occurred while processing your video: {str(e)}. Please try again."
-            
+        
     except Exception as e:
         logger.error(f"Error processing video: {str(e)}")
         return "An error occurred while processing your video. Please try again."
@@ -671,7 +671,7 @@ def process_voice(audio_path: str, target_language: str = "en") -> str:
             response = gemini_service.generate_text_response(text, target_language)
             
             return response
-            
+        
     except sr.UnknownValueError:
         logger.warning("Speech recognition could not understand the audio")
         return "I couldn't understand what was said in the recording. Please try again with clearer audio."

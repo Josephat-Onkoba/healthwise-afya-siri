@@ -242,38 +242,38 @@ Response:"""
 {analyses}
 
 Please provide a comprehensive summary that:
-1. Identifies the main health-related themes or topics
-2. Highlights any educational content about sexual and reproductive health
-3. Notes any potential health concerns or symptoms shown
-4. Provides context for understanding the health implications
-5. Maintains a professional, clinical tone throughout
-
+            1. Identifies the main health-related themes or topics
+            2. Highlights any educational content about sexual and reproductive health
+            3. Notes any potential health concerns or symptoms shown
+            4. Provides context for understanding the health implications
+            5. Maintains a professional, clinical tone throughout
+            
 The summary should be well-structured with:
-- A brief introduction
-- Key health observations and educational points
-- Any recommendations related to sexual and reproductive health
+            - A brief introduction
+            - Key health observations and educational points
+            - Any recommendations related to sexual and reproductive health
 - A conclusion that emphasizes the importance of professional healthcare consultation when needed"""
 
             # Generate response
             response = self.text_model.generate_content(
                 summary_prompt,
                 safety_settings=[
-                    {
-                        "category": "HARM_CATEGORY_HARASSMENT",
-                        "threshold": "BLOCK_NONE"
-                    },
-                    {
-                        "category": "HARM_CATEGORY_HATE_SPEECH",
-                        "threshold": "BLOCK_NONE"
-                    },
-                    {
-                        "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-                        "threshold": "BLOCK_NONE"
-                    },
-                    {
-                        "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
-                        "threshold": "BLOCK_NONE"
-                    }
+                {
+                    "category": "HARM_CATEGORY_HARASSMENT",
+                    "threshold": "BLOCK_NONE"
+                },
+                {
+                    "category": "HARM_CATEGORY_HATE_SPEECH",
+                    "threshold": "BLOCK_NONE"
+                },
+                {
+                    "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                    "threshold": "BLOCK_NONE"
+                },
+                {
+                    "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+                    "threshold": "BLOCK_NONE"
+                }
                 ],
                 generation_config=self.generation_config
             )
@@ -285,7 +285,7 @@ The summary should be well-structured with:
                 return f"Video Analysis Summary:\n\n{response.parts[0].text}"
             else:
                 return "Could not generate a summary for this video."
-                
+            
         except Exception as e:
             logger.error(f"Error summarizing video analysis: {str(e)}")
             return f"Video Analysis Results (Summary unavailable):\n\n{analyses}"

@@ -159,21 +159,21 @@ const FormattedResponse: React.FC<FormattedResponseProps> = ({
           );
         } else {
           // If there's no clear separator, style the whole line as a main statement
-          return (
-            <div key={index} className="flex mb-2">
-              <span className="mr-2 text-purple-600">•</span>
+        return (
+          <div key={index} className="flex mb-2">
+            <span className="mr-2 text-purple-600">•</span>
               <span className="flex-1 font-bold italic">{formatInlineMarkdown(bulletContent)}</span>
-            </div>
-          );
+          </div>
+        );
         }
       }
       
       // Regular paragraph with inline formatting
-      return (
-        <p key={index} className="mb-2">
+        return (
+          <p key={index} className="mb-2">
           {formatInlineMarkdown(line)}
-        </p>
-      );
+          </p>
+        );
     });
   };
 
