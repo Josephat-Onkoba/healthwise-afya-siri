@@ -588,13 +588,14 @@ const ChatInterface = forwardRef<{ clearChatHistory: () => void; openSettings: (
     // Create FormData for the upload
     const formData = new FormData();
     formData.append('file', file);
-    // No need for additional parameters for extract-text endpoint
+    formData.append('language', targetLanguage);
     
     // Log upload details
     console.log('Audio upload details:', {
       fileName: file.name,
       fileSize: file.size,
-      fileType: file.type
+      fileType: file.type,
+      language: targetLanguage
     });
     
     // Update message to show we're uploading
@@ -704,7 +705,7 @@ const ChatInterface = forwardRef<{ clearChatHistory: () => void; openSettings: (
       };
 
       // Create a fetch implementation that supports progress
-      const response = await apiFetch('/api/upload/voice', {
+      const response = await apiFetch('/api/upload/audio', {
         method: 'POST',
         body: formData,
         signal
