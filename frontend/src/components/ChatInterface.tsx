@@ -22,6 +22,7 @@ interface Message {
   status?: 'sending' | 'sent' | 'error' | 'pending';
   error?: string;
   retryFn?: () => void; // Function to retry a failed message
+  role?: 'user' | 'bot'; // Add role property
 }
 
 interface ChatInterfaceProps {
@@ -84,10 +85,11 @@ const ChatInterface = forwardRef<{ clearChatHistory: () => void; openSettings: (
   const [userPreferences, setUserPreferences] = useState<UserPreferences>(defaultPreferences);
   const [bookmarkedResponses, setBookmarkedResponses] = useState<string[]>([]);
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
-  const [videoProcessingType, setVideoProcessingType] = useState<'auto' | 'frames' | 'audio'>('auto');
+  const [videoProcessingType, setVideoProcessingType] = useState<'auto' | 'visual' | 'audio'>('auto');
   const [showVideoOptions, setShowVideoOptions] = useState<boolean>(false);
   const [pendingVideoUpload, setPendingVideoUpload] = useState<File | null>(null);
   const [showListeningIndicator, setShowListeningIndicator] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
 
   // Load messages from localStorage on initial load
   useEffect(() => {
@@ -1443,167 +1445,107 @@ const ChatInterface = forwardRef<{ clearChatHistory: () => void; openSettings: (
     );
   };
 
-  // Add new function to process video with selected option
-  const processVideoWithOption = async (option: 'auto' | 'frames' | 'audio') => {
-    if (!pendingVideoUpload) return;
-    
+  // First, let's add the getErrorMessage helper function
+  const getErrorMessage = (error: unknown): string => {
+    if (error instanceof Error) return error.message;
+    return String(error);
+  };
+
+  // Process a video with the specified option
+  const processVideoWithOption = async (
+    file: File,
+    option: 'auto' | 'visual' | 'audio' | 'comprehensive',
+    requestId: string
+  ) => {
     try {
-      const file = pendingVideoUpload;
-      const mediaUrl = URL.createObjectURL(file);
-      
-      // Set loading state to true
-      setIsLoading(true);
-      
-      // Generate a unique ID for this processing request
-      const requestId = Date.now().toString();
-      
-      // Add a temporary message to show the media is being processed
-      const tempMessageId = Date.now().toString();
+      setIsUploading(true);
+
+      // Create a FormData instance
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('language', targetLanguage);
+      formData.append('processing_type', option);
+      formData.append('request_id', requestId);
+
+      // Define a progress updater for the temporary message
+      const updateProgress = (progress: string) => {
+        setMessages(prev => prev.map(msg => 
+          msg.id === requestId ? { ...msg, content: progress } : msg
+        ));
+      };
+
+      // Add a temporary message indicating processing has started
       const tempMessage: Message = {
-        id: tempMessageId,
-        type: 'video',
-        content: `Processing video ${option === 'frames' ? '(visual frames only)' : 
-                 option === 'audio' ? '(with audio analysis)' : 
-                 '(comprehensive analysis)'}...`,
-        sender: 'user',
+        id: requestId,
+        content: "Processing video. This may take a minute or two...",
+        role: "bot",
+        type: "text",
+        sender: "bot",
         timestamp: new Date(),
-        mediaUrl,
-        status: 'sending'
       };
       
       setMessages(prev => [...prev, tempMessage]);
+
+      // Start the processing
+      const initialResponse = await apiFetch('/api/process-video', {
+        method: 'POST',
+        body: formData
+      });
+
+      if (!initialResponse.ok) {
+        throw new Error(`HTTP error! status: ${initialResponse.status}`);
+      }
+
+      // Get initial data
+      const initialData = await initialResponse.json();
+
+      // Create the polling function with initial depth of 0
+      const pollingFn = createVideoPolling(option, requestId, updateProgress, 0);
+      const result = await pollingFn(initialData);
       
-      // Update user message with processing status
-      const updateProgress = (progress: string) => {
+      // Handle the completed result
+      if (result.status === 'completed') {
         setMessages(prev => prev.map(msg => 
-          msg.id === tempMessageId ? { 
-            ...msg, 
-            content: progress
-          } : msg
+          msg.id === requestId 
+            ? { 
+                ...msg, 
+                content: result.content || "Video processed successfully, but no content was extracted." 
+              } 
+            : msg
         ));
-      };
-      
-      // Create FormData and add processing option
-      const formData = new FormData();
-      formData.append('file', file);
-      
-      // Add parameters based on video processing type
-      if (option === 'frames' || option === 'auto') {
-        // For visual/comprehensive analysis, provide a query
-        formData.append('query', 'Analyze this health-related video content');
       } else {
-        // For audio processing, include language parameter
-        formData.append('language', targetLanguage);
+        // Handle any other status
+        console.warn("Unexpected result status:", result);
+        setMessages(prev => prev.map(msg => 
+          msg.id === requestId 
+            ? { 
+                ...msg, 
+                content: "Video processing completed with an unexpected status. Please try again." 
+              } 
+            : msg
+        ));
       }
       
-      // Keep this for backward compatibility
-      formData.append('processing_type', option);
-      formData.append('request_id', requestId);
-      
-      // Determine endpoint based on the option
-      const endpoint = option === 'frames' ? '/api/upload/video' : 
-                     option === 'audio' ? '/api/upload/video/audio' : 
-                     '/api/upload/video/comprehensive';
-      
-      console.log(`Sending video to endpoint: ${endpoint} with option: ${option}`);
-      
-      // For frames-only analysis, use direct fetch (faster)
-      if (option === 'frames') {
-        try {
-          const response = await apiFetch(endpoint, {
-            method: 'POST',
-            body: formData,
-          });
-          
-          if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-          }
-          
-          const data = await response.json();
-          processVideoResponse(option, data, tempMessageId);
-        } catch (error) {
-          handleVideoError(error, tempMessageId);
-        }
-      } else {
-        // For audio or comprehensive analysis, use a polling approach
-        // First send the file for processing
-        try {
-          updateProgress(`Starting video ${option === 'audio' ? 'audio' : 'comprehensive'} analysis...`);
-          
-          // Initial request to start processing
-          const initResponse = await apiFetch(endpoint, {
-            method: 'POST',
-            body: formData,
-          });
-          
-          if (!initResponse.ok) {
-            throw new Error(`HTTP error! status: ${initResponse.status}`);
-          }
-          
-          const initData = await initResponse.json();
-          
-          // If we got a result immediately, process it
-          if (initData.status === 'completed') {
-            processVideoResponse(option, initData, tempMessageId);
-            return;
-          }
-          
-          // If processing is happening in the background
-          if (initData.status === 'processing' || initData.job_id) {
-            const jobId = initData.job_id || requestId;
-            let attempts = 0;
-            const maxAttempts = 30; // Try for up to 5 minutes (10 seconds * 30)
-            
-            // Start polling for results
-            const pollForResults = async () => {
-              if (attempts >= maxAttempts) {
-                throw new Error("Processing timeout - took too long to complete");
-              }
-              
-              attempts++;
-              updateProgress(`Processing video... (${attempts}/${maxAttempts})`);
-              
-              try {
-                const pollResponse = await apiFetch(`/api/job_status/${jobId}`);
-                
-                if (!pollResponse.ok) {
-                  throw new Error(`HTTP error! status: ${pollResponse.status}`);
-                }
-                
-                const pollData = await pollResponse.json();
-                
-                if (pollData.status === 'completed') {
-                  processVideoResponse(option, pollData, tempMessageId);
-                  return;
-                } else if (pollData.status === 'failed') {
-                  throw new Error(pollData.error || "Processing failed");
-                } else {
-                  // Still processing, wait and try again
-                  setTimeout(pollForResults, 10000); // Poll every 10 seconds
-                }
-              } catch (error) {
-                console.error("Error polling for results:", error);
-                handleVideoError(error, tempMessageId);
-              }
-            };
-            
-            // Start polling
-            setTimeout(pollForResults, 5000); // Start polling after 5 seconds
-          } else {
-            // Handle unexpected response
-            processVideoResponse(option, initData, tempMessageId);
-          }
-        } catch (error) {
-          handleVideoError(error, tempMessageId);
-        }
-      }
+      return result;
+    } catch (error) {
+      console.error('Error processing video:', error);
+      // Update the message to show the error
+      setMessages(prev => prev.map(msg => 
+        msg.id === requestId 
+          ? { 
+              ...msg, 
+              content: `Error processing video: ${getErrorMessage(error)}` 
+            } 
+          : msg
+      ));
+      throw error;
     } finally {
-      // Don't clear loading state here - it will be cleared when processing completes
+      setIsUploading(false);
     }
   };
 
   // Function to handle processing the video response
-  const processVideoResponse = (option: 'auto' | 'frames' | 'audio', data: any, tempMessageId: string) => {
+  const processVideoResponse = (option: 'auto' | 'visual' | 'audio', data: any, tempMessageId: string) => {
     try {
       if (!data) {
         throw new Error('No response data received');
@@ -1637,7 +1579,7 @@ const ChatInterface = forwardRef<{ clearChatHistory: () => void; openSettings: (
       // Process response based on the option
       let botContent = '';
       
-      if (option === 'frames') {
+      if (option === 'visual') {
         botContent = data.result || data.description || data.visual_analysis || 'Sorry, I could not analyze this video.';
       } else if (option === 'audio') {
         if (data.transcript || data.result) {
@@ -1757,7 +1699,7 @@ ${data.analysis || 'No analysis available.'}
               onClick={() => {
                 setVideoProcessingType('auto');
                 setShowVideoOptions(false); // Hide modal immediately
-                processVideoWithOption('auto');
+                processVideoWithOption(pendingVideoUpload, 'auto', Date.now().toString());
               }}
               className="w-full p-4 border border-purple-200 rounded-lg flex items-center space-x-3 hover:bg-purple-50 transition-colors"
             >
@@ -1772,9 +1714,9 @@ ${data.analysis || 'No analysis available.'}
             
             <button
               onClick={() => {
-                setVideoProcessingType('frames');
+                setVideoProcessingType('visual');
                 setShowVideoOptions(false); // Hide modal immediately
-                processVideoWithOption('frames');
+                processVideoWithOption(pendingVideoUpload, 'visual', Date.now().toString());
               }}
               className="w-full p-4 border border-purple-200 rounded-lg flex items-center space-x-3 hover:bg-purple-50 transition-colors"
             >
@@ -1791,7 +1733,7 @@ ${data.analysis || 'No analysis available.'}
               onClick={() => {
                 setVideoProcessingType('audio');
                 setShowVideoOptions(false); // Hide modal immediately
-                processVideoWithOption('audio');
+                processVideoWithOption(pendingVideoUpload, 'audio', Date.now().toString());
               }}
               className="w-full p-4 border border-purple-200 rounded-lg flex items-center space-x-3 hover:bg-purple-50 transition-colors"
             >
@@ -1832,83 +1774,77 @@ ${data.analysis || 'No analysis available.'}
   const createVideoPolling = (
     option: 'auto' | 'visual' | 'audio' | 'comprehensive',
     requestId: string,
-    updateProgress?: (progress: string) => void
+    updateProgress?: (progress: string) => void,
+    depth: number = 0
   ) => {
+    // Maximum allowed recursion depth
+    const MAX_RECURSION_DEPTH = 10;
+    
     return async (initialData: any) => {
       try {
-        if (updateProgress) {
-          updateProgress(`Processing video (0%)...`);
-        }
-        
-        // Initialize variables for polling
-        let status = 'processing';
+        // Initial data from the first call
+        let currentData = initialData;
         let attempts = 0;
-        const maxAttempts = 60; // Increase from 30 to 60 (up to 10 minutes total with 10s interval)
-        const pollingInterval = 10000; // 10 seconds between checks
+        const maxAttempts = 20; // Maximum number of polling attempts
         
-        // If we already have a completed result, return it immediately
-        if (initialData.status === 'completed') {
-          if (updateProgress) {
-            updateProgress(`Video processing complete (100%)`);
-          }
-          return initialData;
+        // Extract initial status and job ID
+        let status = currentData?.status || 'processing';
+        const jobId = currentData?.job_id;
+        
+        if (!jobId) {
+          throw new Error("No job ID provided for video processing");
         }
         
-        // Get the job ID from the initial response
-        const jobId = initialData.job_id || requestId;
-        
-        // Poll until completion or max attempts reached
-        while (status === 'processing' && attempts < maxAttempts) {
+        // Use a while loop instead of recursion
+        while ((status === 'processing' || status === 'pending') && attempts < maxAttempts) {
           attempts++;
           
-          // Calculate a more gradual progress percentage based on attempts
-          // Use a logarithmic scale to show faster initial progress and slower later progress
-          const progressPercent = Math.min(Math.floor((Math.log(attempts + 1) / Math.log(maxAttempts + 1)) * 100), 95);
-          
           if (updateProgress) {
-            updateProgress(`Processing video (${progressPercent}%)...`);
+            updateProgress(`Processing video (attempt ${attempts})...`);
           }
           
-          await new Promise(resolve => setTimeout(resolve, pollingInterval));
+          // Wait 5 seconds before trying again
+          await new Promise(resolve => setTimeout(resolve, 5000));
           
-          // Check status
-          const statusResponse = await apiFetch(`/api/job-status/${jobId}`);
-          
-          if (!statusResponse.ok) {
-            throw new Error(`Failed to get job status: ${statusResponse.statusText}`);
-          }
-          
-          const statusData = await statusResponse.json();
-          
-          // If job completed or failed, update status
-          if (statusData.status === 'completed') {
-            status = 'completed';
-            if (updateProgress) {
-              updateProgress(`Video processing complete (100%)`);
+          try {
+            // Check job status
+            const statusResponse = await apiFetch(`/api/job-status/${jobId}`);
+            
+            if (!statusResponse.ok) {
+              throw new Error(`HTTP error! status: ${statusResponse.status}`);
             }
-            return statusData.result;
-          } else if (statusData.status === 'failed') {
-            status = 'failed';
-            throw new Error(statusData.error || 'Video processing failed');
-          } else if (statusData.status === 'pending') {
-            // Continue polling for 'pending' status
-            status = 'processing';
+            
+            currentData = await statusResponse.json();
+            console.log(`Job status (attempt ${attempts}):`, currentData);
+            
+            // Update status for next iteration
+            status = currentData?.status || 'processing';
+            
+            // If we have a completed result, return it
+            if (status === 'completed') {
+              if (updateProgress) {
+                updateProgress(`Video processing complete (100%)`);
+              }
+              return currentData;
+            }
+            
+            // If we have a failed status, throw an error
+            if (status === 'failed') {
+              throw new Error(currentData?.error || "Video processing failed");
+            }
+          } catch (error) {
+            console.error(`Error checking job status (attempt ${attempts}):`, error);
+            throw error;
           }
         }
         
-        // If we reach here, we've hit the maximum attempts
-        if (status === 'processing') {
-          if (updateProgress) {
-            updateProgress(`Video still processing... The server will continue working, but results will be delivered when ready.`);
-          }
-          // Instead of throwing an error, return a special status that indicates we're still processing
-          return {
-            status: 'pending',
-            message: 'The video is still being processed. The results will appear when processing completes. You can continue using the chat in the meantime.'
-          };
+        // If we've exceeded max attempts
+        if (attempts >= maxAttempts) {
+          throw new Error("Video processing is taking too long. Please try again later.");
         }
         
-        throw new Error('Video processing failed with an unknown error');
+        // If we reach here with an unexpected status
+        throw new Error(`Video processing returned unexpected status: ${status}`);
       } catch (error) {
         console.error('Error polling video job:', error);
         throw error;
