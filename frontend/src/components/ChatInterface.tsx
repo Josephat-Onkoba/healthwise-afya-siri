@@ -484,19 +484,28 @@ const ChatInterface = forwardRef<{ clearChatHistory: () => void; openSettings: (
         // Check for different response structures and common error patterns
         if (data.result) {
           botContent = data.result;
+          
+          // Format as health analysis if not already formatted
+          if (!botContent.includes('## Health Analysis') && !botContent.includes('health analysis')) {
+            botContent = `## Health Image Analysis\n\n${botContent}\n\n*Note: AI analysis of health-related images has limitations. For accurate diagnosis, consult a healthcare professional.*`;
+          }
         } else if (data.error) {
-          botContent = `Sorry, I could not analyze this image. Error: ${data.error}`;
+          botContent = `Sorry, I could not analyze this health-related image. Error: ${data.error}`;
         } else if (data.message) {
-          botContent = `Sorry, I could not analyze this image. Message: ${data.message}`;
+          botContent = `Sorry, I could not analyze this health-related image. Message: ${data.message}`;
         } else if (typeof data === 'object' && Object.keys(data).length === 0) {
           botContent = 'Sorry, I received an empty response from the image analysis service.';
         } else {
           // For unexpected response formats
           console.error('Unexpected image analysis response format:', data);
-          botContent = 'Sorry, I could not analyze this image. The response format was unexpected.';
+          botContent = 'Sorry, I could not analyze this health-related image. The response format was unexpected.';
         }
       } else if (type === 'audio') {
-        botContent = data.transcription || 'Sorry, I could not transcribe this audio.';
+        if (data.transcription) {
+          botContent = `## Health Audio Analysis\n\n### Transcription\n"${data.transcription}"\n\n*Note: This is an AI transcription of health-related audio. Please verify any medical information with qualified healthcare providers.*`;
+        } else {
+          botContent = 'Sorry, I could not transcribe this health-related audio.';
+        }
       }
 
       // Add bot response
@@ -1581,16 +1590,23 @@ const ChatInterface = forwardRef<{ clearChatHistory: () => void; openSettings: (
       
       if (option === 'visual') {
         botContent = data.result || data.description || data.visual_analysis || 'Sorry, I could not analyze this video.';
+        
+        // Add health context wrapper if not already present
+        if (!botContent.includes('## Health Analysis') && !botContent.includes('health analysis')) {
+          botContent = `## Health Visual Analysis\n\n${botContent}\n\n*Note: This is an AI analysis of visual health content. Always consult with healthcare professionals for medical advice.*`;
+        }
       } else if (option === 'audio') {
         if (data.transcript || data.result) {
           botContent = `
-## Audio Analysis
+## Health Audio Analysis
 
 ### Transcript
 "${data.transcript || data.result || ''}"
 
-### Analysis
-${data.analysis || 'No analysis available.'}
+### Health Insights
+${data.analysis || 'I\'ve transcribed the audio, but I don\'t have enough context to provide specific health insights. Please let me know if you have any questions about the content.'}
+
+*Note: This is an AI transcription and analysis. Always verify medical information with healthcare professionals.*
           `;
         } else {
           botContent = data.error || 'Sorry, I could not analyze the audio in this video.';
@@ -1602,16 +1618,18 @@ ${data.analysis || 'No analysis available.'}
           const audioAnalysis = data.audio_analysis || '';
           const visualAnalysis = data.visual_analysis || data.result || '';
           
-          botContent = `## Video Analysis\n\n`;
-          botContent += `### Visual Content\n${visualAnalysis}\n\n`;
+          botContent = `## Health Video Analysis\n\n`;
+          botContent += `### Visual Health Content\n${visualAnalysis}\n\n`;
           
           if (audioTranscript) {
             botContent += `### Audio Transcript\n"${audioTranscript}"\n\n`;
           }
           
           if (audioAnalysis) {
-            botContent += `### Audio Analysis\n${audioAnalysis}`;
+            botContent += `### Audio Health Insights\n${audioAnalysis}\n\n`;
           }
+          
+          botContent += `*Note: This is an AI analysis of health-related content. Always consult healthcare professionals for medical diagnosis and treatment.*`;
         } else {
           botContent = data.result || data.visual_analysis || 
                      data.description || 
@@ -1620,6 +1638,11 @@ ${data.analysis || 'No analysis available.'}
           
           if (data.audio_error) {
             botContent += `\n\n**Note on audio**: ${data.audio_error}`;
+          }
+          
+          // Add health disclaimer if not present
+          if (!botContent.includes('consult healthcare professionals')) {
+            botContent += `\n\n*Note: This is an AI analysis of health-related content. Always consult healthcare professionals for medical diagnosis and treatment.*`;
           }
         }
       }
