@@ -328,7 +328,7 @@ const ChatInterface = forwardRef<{ clearChatHistory: () => void; openSettings: (
         });
         
         formData.append('file', file);
-        formData.append('target_language', targetLanguage);
+        formData.append('language', targetLanguage); // Already using the correct parameter name
         
         const endpoint = type === 'image' ? '/api/upload/image' : 
                         type === 'video' ? '/api/upload/video/comprehensive' : '/api/upload/voice';
@@ -557,7 +557,7 @@ const ChatInterface = forwardRef<{ clearChatHistory: () => void; openSettings: (
     // Create FormData for the upload
     const formData = new FormData();
     formData.append('file', file);
-    formData.append('target_language', targetLanguage);
+    formData.append('language', targetLanguage); // Already using the correct parameter name
     
     // Log upload details
     console.log('Audio upload details:', {
@@ -1454,7 +1454,7 @@ const ChatInterface = forwardRef<{ clearChatHistory: () => void; openSettings: (
       // Create FormData and add processing option
       const formData = new FormData();
       formData.append('file', file);
-      formData.append('target_language', targetLanguage);
+      formData.append('language', targetLanguage); // Already using the correct parameter name
       formData.append('processing_type', option);
       formData.append('request_id', requestId);
       

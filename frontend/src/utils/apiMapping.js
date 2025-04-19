@@ -5,23 +5,52 @@
  */
 
 // Base URL for API calls
-export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
+const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'https://healthwise-afya-siri.onrender.com';
 
 // Mapping of frontend endpoints to backend endpoints
-const endpointMappings = {
-  // Text queries
-  '/api/query': `${API_BASE_URL}/chat`,
-  
-  // Media uploads
-  '/api/upload/image': `${API_BASE_URL}/analyze-image`,
-  '/api/upload/video': `${API_BASE_URL}/analyze-video`,
-  '/api/upload/voice': `${API_BASE_URL}/extract-text`,
-  '/api/upload/video/comprehensive': `${API_BASE_URL}/analyze-video`,
-  '/api/upload/video/audio': `${API_BASE_URL}/analyze-video`,
-  
-  // Job status
-  '/api/job_status': `${API_BASE_URL}/job-status`,
-  '/api/job-status': `${API_BASE_URL}/job-status`,
+const endpointMap = {
+  '/api/query': '/api/chat', 
+  '/api/upload/image': '/api/upload/image',
+  '/api/upload/audio': '/api/upload/audio',
+  '/api/upload/video': '/api/upload/video',
+  '/api/upload/document': '/api/upload/document',
+  '/api/upload/voice': '/api/extract-text',
+  '/api/upload/video/comprehensive': '/api/upload/video',
+  '/api/upload/video/audio': '/api/upload/video/audio',
+};
+
+// Define payload transformers for endpoints that need field name mapping
+const payloadTransformers = {
+  '/api/query': (payload) => {
+    // Transform from { text, target_language } to { message, language }
+    if (payload) {
+      return {
+        message: payload.text,
+        language: payload.target_language
+      };
+    }
+    return payload;
+  }
+};
+
+// Create a list of endpoints that need FormData transformations
+const formDataEndpoints = [
+  '/api/upload/image',
+  '/api/upload/video',
+  '/api/upload/video/comprehensive',
+  '/api/upload/video/audio',
+  '/api/upload/voice',
+  '/api/upload/audio',
+  '/api/upload/document'
+];
+
+// Function to transform payload if needed
+const transformPayload = (endpoint, payload) => {
+  const transformer = payloadTransformers[endpoint];
+  if (transformer && payload) {
+    return transformer(payload);
+  }
+  return payload;
 };
 
 /**
@@ -29,18 +58,9 @@ const endpointMappings = {
  * @param {string} frontendEndpoint - The frontend endpoint path
  * @returns {string} - The corresponding backend URL
  */
-export const getBackendUrl = (frontendEndpoint) => {
-  // Check if we have a direct mapping
-  for (const [frontend, backend] of Object.entries(endpointMappings)) {
-    if (frontendEndpoint.startsWith(frontend)) {
-      // Replace the frontend part with the backend part
-      return frontendEndpoint.replace(frontend, backend);
-    }
-  }
-  
-  // If no mapping found, use the API base URL
-  return `${API_BASE_URL}${frontendEndpoint}`;
-};
+export function getApiUrl(path) {
+  return `${apiBaseUrl}${path}`;
+}
 
 /**
  * Enhanced fetch function that maps frontend endpoints to backend endpoints
@@ -48,10 +68,43 @@ export const getBackendUrl = (frontendEndpoint) => {
  * @param {object} options - Fetch options
  * @returns {Promise} - Fetch promise
  */
-export const apiFetch = (url, options = {}) => {
-  const backendUrl = getBackendUrl(url);
-  console.log(`Mapping request from ${url} to ${backendUrl}`);
-  return fetch(backendUrl, options);
-};
+export async function apiFetch(endpoint, options = {}) {
+  const mappedEndpoint = endpointMap[endpoint] || endpoint;
+  const url = `${apiBaseUrl}${mappedEndpoint}`;
+
+  // Transform payload if this is a POST or PUT request with JSON body
+  if (options.body && 
+      (options.method === 'POST' || options.method === 'PUT') && 
+      options.headers && 
+      options.headers['Content-Type'] === 'application/json') {
+    const payload = JSON.parse(options.body);
+    const transformedPayload = transformPayload(endpoint, payload);
+    options.body = JSON.stringify(transformedPayload);
+  }
+  // Handle FormData transformations (for file uploads)
+  else if (options.body && 
+      (options.method === 'POST' || options.method === 'PUT') && 
+      options.body instanceof FormData) {
+    
+    if (formDataEndpoints.includes(endpoint)) {
+      // Create a clone of the FormData to avoid modifying the original
+      const originalFormData = options.body;
+      const newFormData = new FormData();
+      
+      // Copy all entries from the original FormData
+      for (const [key, value] of originalFormData.entries()) {
+        if (key === 'target_language') {
+          newFormData.append('language', value);
+        } else {
+          newFormData.append(key, value);
+        }
+      }
+      
+      options.body = newFormData;
+    }
+  }
+
+  return fetch(url, options);
+}
 
 export default apiFetch; 
