@@ -10,6 +10,7 @@ import {
   FiHeadphones, FiMusic
 } from 'react-icons/fi';
 import toast from 'react-hot-toast';
+import apiFetch from '../utils/apiMapping'; // Import the API mapping utility
 
 interface Message {
   id: string;
@@ -311,7 +312,7 @@ const ChatInterface = forwardRef<{ clearChatHistory: () => void; openSettings: (
       
       if (type === 'text') {
         console.log('Sending text query:', content);
-        response = await fetch('/api/query', {
+        response = await apiFetch('/api/query', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ text: content, target_language: targetLanguage }),
@@ -350,7 +351,7 @@ const ChatInterface = forwardRef<{ clearChatHistory: () => void; openSettings: (
             updateProgress("Processing video. This may take a minute or two...");
             
             // Initial API call to start processing
-            const initialResponse = await fetch(endpoint, {
+            const initialResponse = await apiFetch(endpoint, {
               method: 'POST',
               body: formData
             });
@@ -419,7 +420,7 @@ const ChatInterface = forwardRef<{ clearChatHistory: () => void; openSettings: (
             }
           } else {
             // Regular file upload processing for non-video files
-          response = await fetch(endpoint, {
+          response = await apiFetch(endpoint, {
             method: 'POST',
             body: formData,
             signal
@@ -538,46 +539,47 @@ const ChatInterface = forwardRef<{ clearChatHistory: () => void; openSettings: (
 
   // Handle audio upload specifically
   const handleAudioUpload = async (file: File, mediaUrl: string): Promise<void> => {
-    // Create a message to show progress
     const tempMessageId = Date.now().toString();
-    const tempMessage: Message = {
+    
+    // Create a message for the audio upload
+    const audioMessage: Message = {
       id: tempMessageId,
       type: 'audio',
       content: 'Processing audio...',
       sender: 'user',
       timestamp: new Date(),
-      mediaUrl,
+      mediaUrl: mediaUrl,
       status: 'sending'
     };
     
-    setMessages(prev => [...prev, tempMessage]);
+    setMessages(prev => [...prev, audioMessage]);
     
     // Create FormData for the upload
     const formData = new FormData();
     formData.append('file', file);
     formData.append('target_language', targetLanguage);
     
-    // Log detailed info about the file
+    // Log upload details
     console.log('Audio upload details:', {
       fileName: file.name,
       fileSize: file.size,
       fileType: file.type
     });
     
-    // Update the message to show we're processing
+    // Update message to show we're uploading
     setMessages(prev => prev.map(msg => 
       msg.id === tempMessageId ? { 
         ...msg, 
-        content: `Uploading audio...`,
+        content: 'Uploading audio...',
         status: 'sending' 
       } : msg
     ));
     
-    // Handle successful upload
+    // Handler for successful upload
     const handleSuccess = (responseText: string) => {
       console.log('Successfully processed audio');
       
-      // Mark the upload as successful
+      // Update user message
       setMessages(prev => prev.map(msg => 
         msg.id === tempMessageId ? { 
           ...msg, 
@@ -586,12 +588,11 @@ const ChatInterface = forwardRef<{ clearChatHistory: () => void; openSettings: (
         } : msg
       ));
       
-      // Create the bot response
-      const botContent = responseText && responseText.trim() ? 
-        responseText : 
-        "I've processed your audio. What would you like to know about it?";
+      // Add bot response
+      const botContent = responseText && responseText.trim() 
+        ? responseText 
+        : "I've processed your audio. What would you like to know about it?";
       
-      // Add the bot message
       const botMessage: Message = {
         id: (Date.now() + 1).toString(),
         type: 'text',
@@ -603,11 +604,11 @@ const ChatInterface = forwardRef<{ clearChatHistory: () => void; openSettings: (
       setMessages(prev => [...prev, botMessage]);
     };
     
-    // Handle error during upload
+    // Handler for upload errors
     const handleError = (error: any) => {
       console.error('Audio upload error:', error);
       
-      // Update the user message with error
+      // Update user message with error
       setMessages(prev => prev.map(msg => 
         msg.id === tempMessageId ? { 
           ...msg, 
@@ -633,59 +634,60 @@ const ChatInterface = forwardRef<{ clearChatHistory: () => void; openSettings: (
       setMessages(prev => [...prev, errorMessage]);
     };
     
-    // Try direct upload using XMLHttpRequest for better error handling
-    const xhr = new XMLHttpRequest();
-    xhr.open('POST', '/api/upload/voice', true);
-    
-    // Set up event handlers
-    xhr.onload = function() {
-      if (xhr.status === 200) {
-        console.log('XHR Success - Response:', xhr.responseText);
-        handleSuccess(xhr.responseText);
-      } else {
-        console.error('XHR Error - Status:', xhr.status, 'Response:', xhr.responseText);
-        handleError(new Error(`HTTP error! status: ${xhr.status}`));
-      }
-    };
-    
-    xhr.onerror = function() {
-      console.error('XHR Network Error');
-      handleError(new Error('Network error during upload'));
-    };
-    
-    // Log progress
-    xhr.upload.onprogress = function(e) {
-      if (e.lengthComputable) {
-        const percentComplete = Math.round((e.loaded / e.total) * 100);
-        console.log(`Upload progress: ${percentComplete}%`);
-        
-        // Update message with progress
-        if (percentComplete < 100) {
-          setMessages(prev => prev.map(msg => 
-            msg.id === tempMessageId ? { 
-              ...msg, 
-              content: `Uploading audio... ${percentComplete}%`,
-              status: 'sending' 
-            } : msg
-          ));
-        } else {
-          setMessages(prev => prev.map(msg => 
-            msg.id === tempMessageId ? { 
-              ...msg, 
-              content: 'Processing audio...',
-              status: 'sending' 
-            } : msg
-          ));
-        }
-      }
-    };
-    
-    // Send the FormData
     try {
-      console.log('Starting XHR upload');
-      xhr.send(formData);
+      // Using apiFetch instead of XMLHttpRequest
+      const controller = new AbortController();
+      const signal = controller.signal;
+      
+      // Update progress indicator
+      let lastProgressUpdate = 0;
+      const progressHandler = (e: ProgressEvent) => {
+        if (e.lengthComputable) {
+          const percentComplete = Math.round((e.loaded / e.total) * 100);
+          
+          // Only update UI every 5% to avoid excessive renders
+          if (percentComplete >= lastProgressUpdate + 5 || percentComplete === 100) {
+            lastProgressUpdate = percentComplete;
+            console.log(`Upload progress: ${percentComplete}%`);
+            
+            // Update message with progress
+            if (percentComplete < 100) {
+              setMessages(prev => prev.map(msg => 
+                msg.id === tempMessageId ? { 
+                  ...msg, 
+                  content: `Uploading audio... ${percentComplete}%`,
+                  status: 'sending' 
+                } : msg
+              ));
+            } else {
+              setMessages(prev => prev.map(msg => 
+                msg.id === tempMessageId ? { 
+                  ...msg, 
+                  content: 'Processing audio...',
+                  status: 'sending' 
+                } : msg
+              ));
+            }
+          }
+        }
+      };
+
+      // Create a fetch implementation that supports progress
+      const response = await apiFetch('/api/upload/voice', {
+        method: 'POST',
+        body: formData,
+        signal
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const responseText = await response.text();
+      handleSuccess(responseText);
+      
     } catch (error) {
-      console.error('XHR Send Error:', error);
+      console.error('API Fetch Error:', error);
       handleError(error);
     } finally {
       setMediaPreview(null);
@@ -1466,7 +1468,7 @@ const ChatInterface = forwardRef<{ clearChatHistory: () => void; openSettings: (
       // For frames-only analysis, use direct fetch (faster)
       if (option === 'frames') {
         try {
-          const response = await fetch(endpoint, {
+          const response = await apiFetch(endpoint, {
             method: 'POST',
             body: formData,
           });
@@ -1487,7 +1489,7 @@ const ChatInterface = forwardRef<{ clearChatHistory: () => void; openSettings: (
           updateProgress(`Starting video ${option === 'audio' ? 'audio' : 'comprehensive'} analysis...`);
           
           // Initial request to start processing
-          const initResponse = await fetch(endpoint, {
+          const initResponse = await apiFetch(endpoint, {
             method: 'POST',
             body: formData,
           });
@@ -1520,7 +1522,7 @@ const ChatInterface = forwardRef<{ clearChatHistory: () => void; openSettings: (
               updateProgress(`Processing video... (${attempts}/${maxAttempts})`);
               
               try {
-                const pollResponse = await fetch(`/api/job_status/${jobId}`);
+                const pollResponse = await apiFetch(`/api/job_status/${jobId}`);
                 
                 if (!pollResponse.ok) {
                   throw new Error(`HTTP error! status: ${pollResponse.status}`);
@@ -1828,7 +1830,7 @@ ${data.analysis || 'No analysis available.'}
           await new Promise(resolve => setTimeout(resolve, pollingInterval));
           
           // Check status
-          const statusResponse = await fetch(`/api/job-status/${jobId}`);
+          const statusResponse = await apiFetch(`/api/job-status/${jobId}`);
           
           if (!statusResponse.ok) {
             throw new Error(`Failed to get job status: ${statusResponse.statusText}`);
