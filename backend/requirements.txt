@@ -8,10 +8,11 @@ uvicorn==0.23.2
 
 # API and ML Libraries
 openai==1.14.2
-langchain==0.0.273
-langchain_openai==0.0.5
-langchain_community==0.0.13
-langchain-groq==0.1.8
+# Use compatible LangChain versions
+langchain>=0.1.0
+langchain-openai>=0.0.5
+langchain-community>=0.0.13
+# Remove langchain-groq which is causing dependency conflicts
 google-generativeai==0.3.2
 google-cloud-translate==3.11.1
 pydantic==2.5.3
@@ -32,6 +33,7 @@ moviepy==1.0.3
 pymupdf==1.23.7
 opencv-python>=4.5.0
 python-magic>=0.4.15
+# Removing python-magic-bin as it's not available in PyPI for this environment
 SpeechRecognition==3.10.0
 pydub==0.25.1
 
