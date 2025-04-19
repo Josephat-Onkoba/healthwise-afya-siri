@@ -10,13 +10,13 @@ const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'https://healthwise-a
 // Mapping of frontend endpoints to backend endpoints
 const endpointMap = {
   '/api/query': '/api/chat', 
-  '/api/upload/image': '/api/upload/image',
+  '/api/upload/image': '/api/analyze-image',
   '/api/upload/audio': '/api/upload/audio',
-  '/api/upload/video': '/api/upload/video',
+  '/api/upload/video': '/api/analyze-video',
   '/api/upload/document': '/api/upload/document',
   '/api/upload/voice': '/api/extract-text',
-  '/api/upload/video/comprehensive': '/api/upload/video',
-  '/api/upload/video/audio': '/api/upload/video/audio',
+  '/api/upload/video/comprehensive': '/api/analyze-video',
+  '/api/upload/video/audio': '/api/analyze-video',
 };
 
 // Define payload transformers for endpoints that need field name mapping

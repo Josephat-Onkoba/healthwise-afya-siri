@@ -328,7 +328,15 @@ const ChatInterface = forwardRef<{ clearChatHistory: () => void; openSettings: (
         });
         
         formData.append('file', file);
-        formData.append('language', targetLanguage); // Already using the correct parameter name
+        
+        // Add the correct parameters based on media type
+        if (type === 'image') {
+          // For image uploads, add a default query parameter
+          formData.append('query', 'Analyze this health-related image');
+        } else {
+          // For other media types, include language
+          formData.append('language', targetLanguage);
+        }
         
         const endpoint = type === 'image' ? '/api/upload/image' : 
                         type === 'video' ? '/api/upload/video/comprehensive' : '/api/upload/voice';
@@ -557,7 +565,7 @@ const ChatInterface = forwardRef<{ clearChatHistory: () => void; openSettings: (
     // Create FormData for the upload
     const formData = new FormData();
     formData.append('file', file);
-    formData.append('language', targetLanguage); // Already using the correct parameter name
+    // No need for additional parameters for extract-text endpoint
     
     // Log upload details
     console.log('Audio upload details:', {
@@ -1454,7 +1462,17 @@ const ChatInterface = forwardRef<{ clearChatHistory: () => void; openSettings: (
       // Create FormData and add processing option
       const formData = new FormData();
       formData.append('file', file);
-      formData.append('language', targetLanguage); // Already using the correct parameter name
+      
+      // Add parameters based on video processing type
+      if (option === 'frames' || option === 'auto') {
+        // For visual/comprehensive analysis, provide a query
+        formData.append('query', 'Analyze this health-related video content');
+      } else {
+        // For audio processing, include language parameter
+        formData.append('language', targetLanguage);
+      }
+      
+      // Keep this for backward compatibility
       formData.append('processing_type', option);
       formData.append('request_id', requestId);
       
