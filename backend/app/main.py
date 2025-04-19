@@ -35,8 +35,7 @@ app.add_middleware(
 gemini_service = GeminiService()
 knowledge_base = KnowledgeBase()
 
-# Initialize knowledge base with sample data
-knowledge_base.initialize_sample_data()
+# The initialize_sample_data method is not needed as the KnowledgeBase constructor already loads default topics
 
 class ChatRequest(BaseModel):
     """Model for chat request."""

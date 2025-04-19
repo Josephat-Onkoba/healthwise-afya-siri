@@ -150,4 +150,94 @@ class KnowledgeBase:
         Returns:
             List of topic names
         """
-        return list(self.topics.keys()) 
+        return list(self.topics.keys())
+        
+    def search(self, query: str, threshold: float = 0.5) -> List[str]:
+        """
+        Search the knowledge base for relevant information.
+        
+        Args:
+            query: The search query
+            threshold: Similarity threshold (default: 0.5)
+            
+        Returns:
+            List of relevant information
+        """
+        results = []
+        try:
+            # Encode the query
+            query_embedding = self.model.encode(query)
+            
+            # Calculate similarities
+            for topic, embedding in self.embeddings.items():
+                similarity = np.dot(query_embedding, embedding) / (
+                    np.linalg.norm(query_embedding) * np.linalg.norm(embedding)
+                )
+                if similarity > threshold:
+                    # Add English content to results
+                    results.append(self.topics[topic].get('en', ''))
+        except Exception as e:
+            print(f"Error searching knowledge base: {str(e)}")
+        
+        return results
+    
+    def get_all_documents(self) -> List[dict]:
+        """
+        Get all documents in the knowledge base.
+        
+        Returns:
+            List of documents with their metadata
+        """
+        documents = []
+        try:
+            for topic, content in self.topics.items():
+                doc = {
+                    "id": topic,
+                    "content": content.get('en', ''),
+                    "languages": list(content.keys())
+                }
+                documents.append(doc)
+        except Exception as e:
+            print(f"Error getting all documents: {str(e)}")
+        
+        return documents
+        
+    def add_document(self, text: str, metadata: Optional[dict] = None) -> str:
+        """
+        Add a document to the knowledge base.
+        
+        Args:
+            text: Document text
+            metadata: Optional metadata
+            
+        Returns:
+            Document ID
+        """
+        # Generate a unique ID for the document
+        import uuid
+        doc_id = str(uuid.uuid4())
+        
+        # Extract language from metadata or default to English
+        language = metadata.get('language', 'en') if metadata else 'en'
+        
+        # Create topic content
+        topic_content = {language: text}
+        
+        # Add to topics
+        self.topics[doc_id] = topic_content
+        
+        # Compute embedding
+        self.embeddings[doc_id] = self.model.encode(text)
+        
+        # Save to file
+        self._save_topics()
+        
+        return doc_id
+        
+    def _save_topics(self):
+        """Save topics to file."""
+        try:
+            with open(os.path.join(self.data_dir, 'topics.json'), 'w', encoding='utf-8') as f:
+                json.dump(self.topics, f, ensure_ascii=False, indent=4)
+        except Exception as e:
+            print(f"Error saving topics: {str(e)}") 
